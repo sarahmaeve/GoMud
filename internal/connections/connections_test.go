@@ -191,3 +191,120 @@ func TestInputDisabled_SetAndGet(t *testing.T) {
 		t.Error("InputDisabled() should return false after InputDisabled(false)")
 	}
 }
+
+// instrumentedConn wraps a net.Conn and records the ordered sequence of
+// SetWriteDeadline and Write calls so tests can verify that concurrent
+// callers never interleave their deadline+write sequences.
+//
+// The ConnectionDetails.Write() method on the telnet path performs three
+// ordered operations per call:
+//  1. SetWriteDeadline(future)
+//  2. conn.Write(payload)
+//  3. SetWriteDeadline(zero)   // reset
+//
+// If two goroutines run this sequence concurrently without a mutex, the
+// calls can interleave — e.g. A's SetWriteDeadline, B's SetWriteDeadline,
+// A's Write (which now runs with B's deadline). This test fails if any
+// interleaving is observed.
+type instrumentedConn struct {
+	mu     sync.Mutex
+	events []instrumentedEvent
+}
+
+type instrumentedEvent struct {
+	kind  string // "deadline-set", "deadline-zero", "write"
+	gor   int    // goroutine id (-1 if unknown)
+	delay time.Duration
+}
+
+func (c *instrumentedConn) record(kind string, gor int) {
+	c.mu.Lock()
+	c.events = append(c.events, instrumentedEvent{kind: kind, gor: gor})
+	c.mu.Unlock()
+}
+
+func (c *instrumentedConn) Read(p []byte) (int, error)        { return 0, nil }
+func (c *instrumentedConn) Close() error                      { return nil }
+func (c *instrumentedConn) LocalAddr() net.Addr               { return nil }
+func (c *instrumentedConn) RemoteAddr() net.Addr              { return nil }
+func (c *instrumentedConn) SetDeadline(t time.Time) error     { return nil }
+func (c *instrumentedConn) SetReadDeadline(t time.Time) error { return nil }
+
+func (c *instrumentedConn) SetWriteDeadline(t time.Time) error {
+	if t.IsZero() {
+		c.record("deadline-zero", -1)
+	} else {
+		c.record("deadline-set", -1)
+	}
+	// Small sleep to widen the race window — makes interleaving detectable
+	// if the mutex is missing.
+	time.Sleep(100 * time.Microsecond)
+	return nil
+}
+
+func (c *instrumentedConn) Write(p []byte) (int, error) {
+	c.record("write", -1)
+	time.Sleep(100 * time.Microsecond)
+	return len(p), nil
+}
+
+// TestWrite_TelnetConcurrentWritesSerialized verifies that ConnectionDetails.Write
+// serializes the SetWriteDeadline/Write/reset sequence. It uses a custom
+// instrumentedConn that records every call in order, then asserts that the
+// observed sequence is always of the form:
+//
+//	deadline-set, write, deadline-zero, deadline-set, write, deadline-zero, ...
+//
+// If the writeMu mutex is removed, concurrent goroutines will produce
+// interleaved patterns like:
+//
+//	deadline-set, deadline-set, write, deadline-zero, ...
+//
+// which the assertion below catches.
+func TestWrite_TelnetConcurrentWritesSerialized(t *testing.T) {
+	t.Parallel()
+
+	ic := &instrumentedConn{}
+	cd := &ConnectionDetails{conn: ic}
+
+	const goroutines = 10
+	const writesPerGoroutine = 5
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+	for i := 0; i < goroutines; i++ {
+		go func() {
+			defer wg.Done()
+			for j := 0; j < writesPerGoroutine; j++ {
+				if _, err := cd.Write([]byte("payload\n")); err != nil {
+					t.Errorf("Write returned error: %v", err)
+					return
+				}
+			}
+		}()
+	}
+	wg.Wait()
+
+	// Expected pattern per Write: deadline-set, write, deadline-zero.
+	// With the mutex in place, these must appear contiguously for each call.
+	// Without the mutex, they interleave across goroutines and the pattern
+	// check below will find a violation.
+	totalWrites := goroutines * writesPerGoroutine
+	if len(ic.events) != totalWrites*3 {
+		t.Fatalf("expected %d events (3 per Write), got %d", totalWrites*3, len(ic.events))
+	}
+
+	for i := 0; i < len(ic.events); i += 3 {
+		if ic.events[i].kind != "deadline-set" {
+			t.Errorf("at event %d: expected 'deadline-set', got %q — telnet writes are not serialized by writeMu", i, ic.events[i].kind)
+			return
+		}
+		if ic.events[i+1].kind != "write" {
+			t.Errorf("at event %d: expected 'write', got %q — telnet writes are not serialized by writeMu", i+1, ic.events[i+1].kind)
+			return
+		}
+		if ic.events[i+2].kind != "deadline-zero" {
+			t.Errorf("at event %d: expected 'deadline-zero', got %q — telnet writes are not serialized by writeMu", i+2, ic.events[i+2].kind)
+			return
+		}
+	}
+}

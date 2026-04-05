@@ -85,8 +85,8 @@ func (hm *heartbeatManager) runPingLoop() {
 }
 
 func (hm *heartbeatManager) writePing() error {
-	hm.cd.wsLock.Lock()
-	defer hm.cd.wsLock.Unlock()
+	hm.cd.writeMu.Lock()
+	defer hm.cd.writeMu.Unlock()
 
 	deadline := time.Now().Add(hm.config.WriteWait)
 	mudlog.Debug("Heartbeat::Ping", "connectionId", hm.cd.connectionId)
