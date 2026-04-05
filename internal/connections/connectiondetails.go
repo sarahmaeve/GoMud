@@ -20,6 +20,12 @@ const (
 	LoggedIn
 	Zombie
 	MaxHistory = 10
+
+	// writeDeadline is the maximum time allowed for a single Write call.
+	// If a client's TCP receive buffer fills up and the write blocks beyond
+	// this duration, the write will fail and the connection can be dropped
+	// rather than stalling the entire server.
+	writeDeadline = 5 * time.Second
 )
 
 type InputHistory struct {
@@ -234,14 +240,25 @@ func (cd *ConnectionDetails) Write(p []byte) (n int, err error) {
 			return 0, nil
 		}
 
-		err := cd.wsConn.WriteMessage(websocket.TextMessage, p)
-		if err != nil {
+		if err := cd.wsConn.SetWriteDeadline(time.Now().Add(writeDeadline)); err != nil {
 			return 0, err
+		}
+		writeErr := cd.wsConn.WriteMessage(websocket.TextMessage, p)
+		// Reset to no deadline regardless of outcome.
+		_ = cd.wsConn.SetWriteDeadline(time.Time{})
+		if writeErr != nil {
+			return 0, writeErr
 		}
 		return len(p), nil
 	}
 
-	return cd.conn.Write(p)
+	if err := cd.conn.SetWriteDeadline(time.Now().Add(writeDeadline)); err != nil {
+		return 0, err
+	}
+	n, err = cd.conn.Write(p)
+	// Reset to no deadline regardless of outcome.
+	_ = cd.conn.SetWriteDeadline(time.Time{})
+	return n, err
 }
 
 func (cd *ConnectionDetails) Read(p []byte) (n int, err error) {
