@@ -7,86 +7,17 @@ import (
 	"time"
 
 	"github.com/GoMudEngine/GoMud/internal/mudlog"
+	"github.com/GoMudEngine/GoMud/internal/ratelimit"
 	"github.com/GoMudEngine/GoMud/internal/users"
 )
 
 var (
-	authCache = map[string]time.Time{}
+	authCache   = map[string]time.Time{}
+	authCacheMu sync.RWMutex
 )
 
-// webAuthLimiter is a simple IP-based rate limiter for the admin web panel.
-// Progressive backoff: 3 failures = 2 s, 5 = 10 s, 10+ = 30 s.
-// Localhost (127.0.0.1, ::1) is never blocked.
-var webAuthLimiter = &webRateLimiter{attempts: make(map[string]*webAttemptInfo)}
-
-type webAttemptInfo struct {
-	failures     int
-	blockedUntil time.Time
-}
-
-type webRateLimiter struct {
-	mu       sync.Mutex
-	attempts map[string]*webAttemptInfo
-}
-
-func (wl *webRateLimiter) isBlocked(ip string) bool {
-	if isWebLocalhost(ip) {
-		return false
-	}
-	wl.mu.Lock()
-	defer wl.mu.Unlock()
-	info, ok := wl.attempts[ip]
-	if !ok {
-		return false
-	}
-	return time.Now().Before(info.blockedUntil)
-}
-
-func (wl *webRateLimiter) recordFailure(ip string) {
-	if isWebLocalhost(ip) {
-		return
-	}
-	wl.mu.Lock()
-	defer wl.mu.Unlock()
-	info, ok := wl.attempts[ip]
-	if !ok {
-		info = &webAttemptInfo{}
-		wl.attempts[ip] = info
-	}
-	info.failures++
-	var d time.Duration
-	switch {
-	case info.failures >= 10:
-		d = 30 * time.Second
-	case info.failures >= 5:
-		d = 10 * time.Second
-	case info.failures >= 3:
-		d = 2 * time.Second
-	}
-	if d > 0 {
-		info.blockedUntil = time.Now().Add(d)
-	}
-}
-
-func (wl *webRateLimiter) recordSuccess(ip string) {
-	if isWebLocalhost(ip) {
-		return
-	}
-	wl.mu.Lock()
-	defer wl.mu.Unlock()
-	delete(wl.attempts, ip)
-}
-
-func isWebLocalhost(ip string) bool {
-	if ip == "127.0.0.1" || ip == "::1" {
-		return true
-	}
-	parsed := net.ParseIP(ip)
-	if parsed == nil {
-		return false
-	}
-	return parsed.IsLoopback()
-}
+// webAuthLimiter is the shared rate limiter for the admin web panel.
+var webAuthLimiter = ratelimit.New()
 
 // remoteIP extracts the IP address from an HTTP request's RemoteAddr.
 func remoteIP(r *http.Request) string {
@@ -103,13 +34,24 @@ func handlerToHandlerFunc(h http.Handler) http.HandlerFunc {
 	}
 }
 
+// pruneAuthCacheLocked removes expired entries from authCache.
+// Must be called with authCacheMu held for writing.
+func pruneAuthCacheLocked() {
+	now := time.Now()
+	for key, expiry := range authCache {
+		if !expiry.After(now) {
+			delete(authCache, key)
+		}
+	}
+}
+
 func doBasicAuth(next http.HandlerFunc) http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 
 		ip := remoteIP(r)
 
 		// Reject rate-limited IPs before doing any credential work.
-		if webAuthLimiter.isBlocked(ip) {
+		if webAuthLimiter.IsBlocked(ip) {
 			mudlog.Warn("ADMIN LOGIN BLOCKED", "ip", ip, "reason", "rate limited")
 			w.Header().Set("WWW-Authenticate", `Basic realm="restricted", charset="UTF-8"`)
 			http.Error(w, "Too many failed attempts. Please try again later.", http.StatusTooManyRequests)
@@ -118,14 +60,20 @@ func doBasicAuth(next http.HandlerFunc) http.HandlerFunc {
 
 		authHeader := r.Header.Get("Authorization")
 
-		if t, ok := authCache[authHeader]; ok {
+		// Fast path: check the auth cache under a read lock.
+		authCacheMu.RLock()
+		cachedExpiry, cached := authCache[authHeader]
+		authCacheMu.RUnlock()
 
-			if t.After(time.Now()) {
+		if cached {
+			if cachedExpiry.After(time.Now()) {
 				next.ServeHTTP(w, r)
 				return
 			}
-
+			// Entry is expired — promote to write lock to remove it.
+			authCacheMu.Lock()
 			delete(authCache, authHeader)
+			authCacheMu.Unlock()
 		}
 
 		// Extract the username and password from the request
@@ -145,10 +93,15 @@ func doBasicAuth(next http.HandlerFunc) http.HandlerFunc {
 
 						mudlog.Warn("ADMIN LOGIN", "username", username, "success", true)
 
-						webAuthLimiter.recordSuccess(ip)
+						webAuthLimiter.RecordSuccess(ip)
 
-						// Cache auth for 30 minutes to avoid re-auth every load
+						// Cache auth for 30 minutes to avoid re-auth every load.
+						// Acquire write lock, prune stale entries opportunistically,
+						// then insert the new entry.
+						authCacheMu.Lock()
+						pruneAuthCacheLocked()
 						authCache[authHeader] = time.Now().Add(time.Minute * 30)
+						authCacheMu.Unlock()
 
 						next.ServeHTTP(w, r)
 						return
@@ -166,7 +119,7 @@ func doBasicAuth(next http.HandlerFunc) http.HandlerFunc {
 		}
 
 		// Record the failed attempt before responding.
-		webAuthLimiter.recordFailure(ip)
+		webAuthLimiter.RecordFailure(ip)
 
 		// If the Authentication header is not present, is invalid, or the
 		// username or password is wrong, then set a WWW-Authenticate
