@@ -13,6 +13,7 @@ import (
 	"github.com/GoMudEngine/GoMud/internal/fileloader"
 	"github.com/GoMudEngine/GoMud/internal/items"
 	"github.com/GoMudEngine/GoMud/internal/mudlog"
+	"github.com/GoMudEngine/GoMud/internal/persistence"
 	"github.com/GoMudEngine/GoMud/internal/util"
 	"gopkg.in/yaml.v2"
 )
@@ -96,7 +97,19 @@ func LoadRoom(roomId int) *Room {
 	return nil
 }
 
-// See: B. LOADING ROOMS FROM FILES
+// LoadRoomInstance loads the template for the given room and then
+// overlays any instance-specific state (floor items, gold, dynamic
+// container contents, signs, etc.) from the persistence store.
+//
+// Templates stay in YAML and are loaded by LoadRoomTemplate. The
+// instance overlay is fetched from persistence.Store.LoadRoomInstance
+// and YAML-unmarshaled onto the template struct, overwriting any
+// fields present in the overlay.
+//
+// Returns nil if the template cannot be loaded. A missing instance
+// overlay is NOT an error — it just means the room has only its
+// template state, which is the common case for rooms no player has
+// visited yet.
 func LoadRoomInstance(roomId int) *Room {
 
 	room := LoadRoomTemplate(roomId)
@@ -104,18 +117,27 @@ func LoadRoomInstance(roomId int) *Room {
 		return nil
 	}
 
-	filename := roomManager.GetFilePath(roomId)
-
-	if len(filename) == 0 {
-		return nil
+	if err := requireStore(); err != nil {
+		mudlog.Error("LoadRoomInstance: store not initialized", "error", err.Error())
+		return room // return the template-only room rather than nil
 	}
 
-	// Look for specially saved instance data
-	filepath := util.FilePath(configs.GetFilePathsConfig().DataFiles.String(), `/rooms.instances/`, filename)
+	data, err := store.LoadRoomInstance(roomId)
+	if err != nil {
+		if !errors.Is(err, persistence.ErrNotFound) {
+			mudlog.Error("LoadRoomInstance: store query", "roomId", roomId, "error", err.Error())
+		}
+		// No overlay — return template-only room.
+		return room
+	}
 
-	if bytes, err := os.ReadFile(filepath); err == nil {
-		// Unmarshal onto the default template data, overwriting any set fields in the instance save file
-		yaml.Unmarshal(bytes, room)
+	// Unmarshal onto the template, overwriting any fields present in
+	// the instance payload.
+	if err := yaml.Unmarshal(data.Payload, room); err != nil {
+		mudlog.Error("LoadRoomInstance: unmarshal payload", "roomId", roomId, "error", err.Error())
+		// Corrupt overlay — log and return template-only room rather
+		// than failing the load entirely.
+		return room
 	}
 
 	return room
@@ -291,25 +313,27 @@ func SaveRoomInstance(r Room) error {
 
 	}
 
-	zone := ZoneToFolder(r.Zone)
-	folderPath := util.FilePath(configs.GetFilePathsConfig().DataFiles.String(), `/rooms.instances/`, zone)
-	instanceFilePath := fmt.Sprintf("%s%d.yaml", folderPath, r.RoomId)
-
-	if len(instanceSaveData) == 0 {
-		os.Remove(instanceFilePath)
-		return nil
+	if err := requireStore(); err != nil {
+		return err
 	}
 
-	data, err := yaml.Marshal(instanceSaveData)
+	// If the instance is identical to the template (no overlay needed),
+	// delete any existing overlay rather than persisting an empty one.
+	if len(instanceSaveData) == 0 {
+		return store.DeleteRoomInstance(r.RoomId)
+	}
+
+	payload, err := yaml.Marshal(instanceSaveData)
 	if err != nil {
 		return err
 	}
 
-	if err = os.WriteFile(instanceFilePath, data, 0777); err != nil {
-		return err
-	}
-
-	return nil
+	return store.SaveRoomInstance(&persistence.RoomInstanceData{
+		RoomId:    r.RoomId,
+		Zone:      r.Zone,
+		Payload:   payload,
+		UpdatedAt: time.Now(),
+	})
 }
 
 func loadRoomFromFile(roomFilePath string) (*Room, error) {
