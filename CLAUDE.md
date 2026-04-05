@@ -25,6 +25,20 @@ When analyzing, reviewing, or writing Go code in this project, always use the av
 - **Regression check.** After any non-trivial fix, especially CRITICAL or HIGH severity, recheck for possible regressions in related code paths.
 - **General principle:** Create tests or instrument code first, then repair bugs. Never ship a fix without a way to verify it works.
 
+## Git Workflow
+
+- **Fork development:** Create feature/fix branches from our `master`, develop and test, merge to `master` via PR on `sarahmaeve/GoMud`.
+- **Upstream contributions:** To send a fix to `GoMudEngine/GoMud`:
+  1. Cherry-pick the fix commit(s) onto a new branch from `upstream/master`:
+     ```
+     git checkout -b upstream-fix/description upstream/master
+     git cherry-pick <commit-hash>
+     ```
+  2. Push to our fork: `git push origin upstream-fix/description`
+  3. PR to upstream: `gh pr create --repo GoMudEngine/GoMud --base master`
+- **Keep commits self-contained** so they cherry-pick cleanly. Don't mix fork-specific changes (CLAUDE.md, .gitignore, planning/) with upstream-worthy fixes.
+- **Always use `gh repo set-default sarahmaeve/GoMud`** to ensure `gh` targets our fork by default. Use `--repo GoMudEngine/GoMud` explicitly for upstream PRs.
+
 ## Issue Tracking
 
 Open issues are tracked in GitHub Issues on this repo. Use `gh issue list` to see current work items. Issues are labeled by severity (critical, high, medium, low) and category (security, go-idiom, architecture, testing).
