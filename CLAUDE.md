@@ -101,6 +101,22 @@ When analyzing, reviewing, or writing Go code in this project, always use the av
 
 Open issues are tracked in GitHub Issues on this repo. Use `gh issue list` to see current work items. Issues are labeled by severity (critical, high, medium, low) and category (security, go-idiom, architecture, testing).
 
+## Persistence
+
+Runtime state (user records, room instance overlays) lives in a SQLite database at `<data-dir>/db/<worldname>_mud.db`. Content templates (rooms, mobs, items, quests, spells, races, buffs) stay as YAML files under `<data-dir>/world/<worldname>/`. Writes are asynchronous through a background worker in `internal/persistence/`.
+
+When adding new mutable runtime state, extend the YAML payload that goes into `users.data` or `room_instances.data`, OR add a new table with a numbered migration in `internal/persistence/migrations.go`. When adding new content types, use YAML under the world directory.
+
+Always call `users.GetStore().Flush()` or rely on graceful shutdown's `Close()` to flush pending writes before exit. Missing this on shutdown loses the last in-memory batch.
+
+See `planning/persistence-architecture.md` for the full design.
+
+Key flags:
+- `--data-dir <path>` — base data directory (default `./_datafiles`)
+- `--config <path>` — config file path (default `<data-dir>/config.yaml`)
+- `--init-db` — create the persistence database if missing
+- `--create-admin <username:password>` — create an admin account on `--init-db`
+
 ## Local Planning
 
 The `planning/` directory (gitignored) contains detailed review findings and local notes. Key files:
@@ -108,3 +124,4 @@ The `planning/` directory (gitignored) contains detailed review findings and loc
 - `planning/review-comparison.md` — comparison of review approaches
 - `planning/localtesting.md` — how to run the server locally
 - `planning/upstream-candidates.md` — fork commits ready to cherry-pick to upstream
+- `planning/persistence-architecture.md` — SQLite persistence design and operational model

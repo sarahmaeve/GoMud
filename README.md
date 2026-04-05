@@ -54,9 +54,72 @@ _TELNET_ : connect to `localhost` on port `33333` with a telnet client
 
 _WEB CLIENT_: [http://localhost/webclient](http://localhost/webclient)
 
-**Default Username:** _admin_
+The first time you run the server, you must initialize the persistence database and create an admin account (see the [Persistence](#persistence) section below). There is no longer a baked-in default account — you pick your own admin credentials at first boot.
 
-**Default Password:** _password_
+## Persistence
+
+GoMud uses a hybrid persistence model:
+
+- **Content templates** (rooms, mobs, items, quests, spells, races, buffs) live as YAML files in `<data-dir>/world/<worldname>/`. Content creators edit these directly in a text editor or via in-game OLC commands (`#build`, `#room edit`, etc.).
+- **Runtime state** (player records, room instance overlays, auction state) lives in a SQLite database at `<data-dir>/db/<worldname>_mud.db` by default. Writes are buffered through a background worker and committed in batches, so game logic never blocks on disk I/O.
+
+### First-time setup
+
+On first run you must explicitly initialize the database. The server will refuse to start with a missing database file unless `--init-db` is supplied — this prevents a misconfigured path from silently creating an empty database alongside a real one.
+
+```
+./GoMud --init-db --create-admin "youradminname:yourpassword"
+```
+
+The `--create-admin` flag takes a single `username:password` argument. Both sides are validated against the project's existing rules (username length, banned-name patterns, mob-name collisions; password length 8-24 by default). The password is hashed with bcrypt before being stored — it is not kept in plaintext.
+
+After the first run, subsequent starts do not need `--init-db`:
+
+```
+./GoMud
+```
+
+### Running the binary from a different directory
+
+By default the binary expects a `_datafiles/` directory in the current working directory. You can override this with `--data-dir`:
+
+```
+./GoMud --data-dir /opt/gomud/data
+./GoMud --data-dir ~/my-mud --init-db
+```
+
+The data directory contains `config.yaml`, `world/<worldname>/` content, `localize/`, `sample-scripts/`, and `db/`. You can also point at an alternate config file explicitly with `--config`:
+
+```
+./GoMud --data-dir /opt/gomud/data --config /etc/gomud/production.yaml
+```
+
+Relative paths in the config file (e.g., `FilePaths.DataFiles: world/default`) resolve against the data directory. Absolute paths pass through unchanged.
+
+### Command-line flags
+
+| Flag | Description |
+|---|---|
+| `--data-dir <path>` | Base data directory (default: `./_datafiles`) |
+| `--config <path>` | Config file path (default: `<data-dir>/config.yaml`) |
+| `--init-db` | Create the persistence database if it does not exist |
+| `--create-admin <username:password>` | Create an admin account on `--init-db`. Requires `--init-db`. |
+| `--version` | Print version and exit |
+| `--port-search <min-max>` | Find available ports in a range and exit |
+
+### Inspecting the database
+
+The database is a standard SQLite file. You can open it with any SQLite tool:
+
+```
+sqlite3 _datafiles/db/default_mud.db
+sqlite> SELECT user_id, username, role FROM users;
+sqlite> .schema
+```
+
+### Backups
+
+Stop the server cleanly (so the write-ahead log is committed), then copy the `.db`, `.db-shm`, and `.db-wal` files as a set. For live backups without downtime, use SQLite's `.backup` command or a tool like LiteStream.
 
 ## Env Vars
 
