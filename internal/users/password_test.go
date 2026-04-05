@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/GoMudEngine/GoMud/internal/configs"
 	"github.com/GoMudEngine/GoMud/internal/util"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -189,5 +190,81 @@ func TestUserRecord_SetPassword_DifferentHashesForSamePassword(t *testing.T) {
 	}
 	if !u2.PasswordMatches(pw) {
 		t.Error("u2.PasswordMatches returned false")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Password length validation
+// ---------------------------------------------------------------------------
+
+func setupPasswordConfig(t *testing.T, min, max int) {
+	t.Helper()
+	configs.SetTestValidation(configs.Validation{
+		PasswordSizeMin: configs.ConfigInt(min),
+		PasswordSizeMax: configs.ConfigInt(max),
+		NameSizeMin:     1,
+		NameSizeMax:     32,
+	})
+}
+
+func TestValidatePassword_TooShort(t *testing.T) {
+	setupPasswordConfig(t, 8, 24)
+
+	err := ValidatePassword("short")
+	if err == nil {
+		t.Error("expected error for password shorter than minimum, got nil")
+	}
+}
+
+func TestValidatePassword_TooLong(t *testing.T) {
+	setupPasswordConfig(t, 8, 24)
+
+	err := ValidatePassword("this-password-is-way-too-long-for-the-max")
+	if err == nil {
+		t.Error("expected error for password longer than maximum, got nil")
+	}
+}
+
+func TestValidatePassword_ValidLength(t *testing.T) {
+	setupPasswordConfig(t, 8, 24)
+
+	err := ValidatePassword("good-password")
+	if err != nil {
+		t.Errorf("expected nil error for valid password, got: %v", err)
+	}
+}
+
+func TestValidatePassword_ExactMinimum(t *testing.T) {
+	setupPasswordConfig(t, 8, 24)
+
+	err := ValidatePassword("12345678") // exactly 8
+	if err != nil {
+		t.Errorf("expected nil error for password at exact minimum, got: %v", err)
+	}
+}
+
+func TestValidatePassword_ExactMaximum(t *testing.T) {
+	setupPasswordConfig(t, 8, 24)
+
+	err := ValidatePassword("123456789012345678901234") // exactly 24
+	if err != nil {
+		t.Errorf("expected nil error for password at exact maximum, got: %v", err)
+	}
+}
+
+func TestValidatePassword_SpecialCharacters(t *testing.T) {
+	setupPasswordConfig(t, 8, 24)
+
+	passwords := []string{
+		"pass_word!",
+		"p@$$w0rd#",
+		"my^secret%",
+		"test&pass=1",
+		"spaces work",
+	}
+	for _, pw := range passwords {
+		if err := ValidatePassword(pw); err != nil {
+			t.Errorf("expected special characters to be allowed in %q, got: %v", pw, err)
+		}
 	}
 }

@@ -476,8 +476,8 @@ Validation:
   NameSizeMax: 32
   # - PasswordSizeMin / PasswordSizeMax -
   #   Min/Max size of passwords allowed.
-  PasswordSizeMin: 4
-  PasswordSizeMax: 16
+  PasswordSizeMin: 8
+  PasswordSizeMax: 24
   # - EmailOnJoin -
   #   Whether to ask for email addresses on signup.
   #   Can be "required", "optional", "none"
