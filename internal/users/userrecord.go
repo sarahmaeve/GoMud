@@ -6,6 +6,7 @@ import (
 	"math"
 	"math/big"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/GoMudEngine/GoMud/internal/audio"
@@ -49,6 +50,7 @@ type UserRecord struct {
 	EventLog       UserLog               `yaml:"-"`                      // Do not retain in user file (for now)
 	LastMusic      string                `yaml:"-"`                      // Keeps track of the last music that was played
 	connectionId   uint64
+	unsentMu       sync.Mutex // guards unsentText and suggestText
 	unsentText     string
 	suggestText    string
 	connectionTime time.Time
@@ -500,13 +502,15 @@ func (u *UserRecord) RoundTick() {
 // I don't like the idea of capturing it every time they hit a key though
 // There is probably a better way.
 func (u *UserRecord) SetUnsentText(t string, suggest string) {
-
+	u.unsentMu.Lock()
+	defer u.unsentMu.Unlock()
 	u.unsentText = t
 	u.suggestText = suggest
 }
 
 func (u *UserRecord) GetUnsentText() (unsent string, suggestion string) {
-
+	u.unsentMu.Lock()
+	defer u.unsentMu.Unlock()
 	return u.unsentText, u.suggestText
 }
 
