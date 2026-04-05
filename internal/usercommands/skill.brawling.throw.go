@@ -54,7 +54,7 @@ func Throw(rest string, user *users.UserRecord, room *rooms.Room, flags events.E
 	}
 
 	// Fire an event that a skill has been used
-	events.AddToQueue(events.SkillUsed{user.UserId, skills.Brawling, `throw`})
+	events.AddToQueue(events.SkillUsed{UserId: user.UserId, Skill: skills.Brawling, Details: `throw`})
 
 	targetPlayerId, targetMobId := room.FindByName(throwWhere)
 

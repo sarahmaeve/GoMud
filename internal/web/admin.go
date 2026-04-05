@@ -1,8 +1,8 @@
 package web
 
 import (
-	"net/http"
 	"html/template"
+	"net/http"
 
 	"github.com/GoMudEngine/GoMud/internal/configs"
 	"github.com/GoMudEngine/GoMud/internal/mudlog"

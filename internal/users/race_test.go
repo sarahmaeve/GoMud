@@ -61,7 +61,7 @@ func TestUserManager_ConcurrentAccess(t *testing.T) {
 // Run with -race: the test MUST FAIL (data race) before the unsentMu mutex is
 // added to UserRecord, and MUST PASS afterwards.
 func TestUserRecord_UnsentText_ConcurrentAccess(t *testing.T) {
-	u := &UserRecord{}
+	u := &UserRecord{unsent: &unsentState{}}
 
 	const goroutines = 20
 	var wg sync.WaitGroup
@@ -97,6 +97,7 @@ func TestUserRecord_YAMLMarshal_UnsentMuNotSerialized(t *testing.T) {
 		UserId:   42,
 		Username: "testplayer",
 		Role:     RoleUser,
+		unsent:   &unsentState{},
 	}
 	// Set some unsent text to prove the mutex is in use.
 	u.SetUnsentText("partial command", "suggestion")
@@ -133,6 +134,28 @@ func TestUserRecord_YAMLMarshal_UnsentMuNotSerialized(t *testing.T) {
 	}
 	if u2.Role != u.Role {
 		t.Errorf("Role mismatch after round-trip: got %q, want %q", u2.Role, u.Role)
+	}
+}
+
+// TestUserRecord_CopyByValue verifies that copying a UserRecord by value is safe
+// and does not copy a mutex (regression test for the pointer-to-substruct fix).
+// Both the original and the copy share the same *unsentState, so writes via
+// either are visible to both — but crucially there is no data race.
+func TestUserRecord_CopyByValue(t *testing.T) {
+	u := &UserRecord{unsent: &unsentState{}}
+	u.SetUnsentText("hello", "world")
+
+	// Copy the struct by value — must not trigger go vet "copies lock value".
+	copied := *u
+
+	unsent1, sug1 := u.GetUnsentText()
+	unsent2, sug2 := copied.GetUnsentText()
+
+	if unsent1 != unsent2 {
+		t.Errorf("unsentText mismatch: original %q, copy %q", unsent1, unsent2)
+	}
+	if sug1 != sug2 {
+		t.Errorf("suggestText mismatch: original %q, copy %q", sug1, sug2)
 	}
 }
 

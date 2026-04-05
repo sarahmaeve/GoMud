@@ -48,7 +48,7 @@ func Inspect(rest string, user *users.UserRecord, room *rooms.Room, flags events
 		}
 
 		// Fire an event that a skill has been used
-		events.AddToQueue(events.SkillUsed{user.UserId, skills.Inspect, ``})
+		events.AddToQueue(events.SkillUsed{UserId: user.UserId, Skill: skills.Inspect, Details: ``})
 
 		user.SendText(
 			fmt.Sprintf(`You inspect the <ansi fg="item">%s</ansi>.`, matchItem.DisplayName()),

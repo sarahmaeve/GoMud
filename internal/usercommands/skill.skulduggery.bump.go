@@ -56,7 +56,7 @@ func Bump(rest string, user *users.UserRecord, room *rooms.Room, flags events.Ev
 	}
 
 	// Fire an event that a skill has been used
-	events.AddToQueue(events.SkillUsed{user.UserId, skills.Skulduggery, `bump`})
+	events.AddToQueue(events.SkillUsed{UserId: user.UserId, Skill: skills.Skulduggery, Details: `bump`})
 
 	goldDropped := 0
 

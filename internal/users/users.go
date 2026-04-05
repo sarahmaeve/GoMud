@@ -389,6 +389,8 @@ func LoadUser(username string, skipValidation ...bool) (*UserRecord, error) {
 		mudlog.Error("LoadUser", "error", err.Error())
 		return nil, fmt.Errorf("LoadUser unmarshal: %w", err)
 	}
+	// unsent is a pointer field skipped by YAML — initialize it after unmarshal.
+	loadedUser.unsent = &unsentState{}
 
 	if len(skipValidation) == 0 || !skipValidation[0] {
 		if err := loadedUser.Character.Validate(true); err == nil {

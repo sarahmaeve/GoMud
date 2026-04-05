@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"html/template"
 	"log"
 	"log/slog"
 	"net"
@@ -13,7 +14,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"html/template"
 	"time"
 
 	"github.com/GoMudEngine/GoMud/internal/configs"

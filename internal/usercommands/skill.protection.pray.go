@@ -55,7 +55,7 @@ func Pray(rest string, user *users.UserRecord, room *rooms.Room, flags events.Ev
 	if prayPlayerId > 0 {
 
 		// Fire an event that a skill has been used
-		events.AddToQueue(events.SkillUsed{user.UserId, skills.Protection, `pray`})
+		events.AddToQueue(events.SkillUsed{UserId: user.UserId, Skill: skills.Protection, Details: `pray`})
 
 		if prayPlayerId == user.UserId {
 			room.SendText(fmt.Sprintf(`<ansi fg="username">%s</ansi> begins to pray.`, user.Character.Name), user.UserId)
@@ -84,7 +84,7 @@ func Pray(rest string, user *users.UserRecord, room *rooms.Room, flags events.Ev
 	} else if prayMobId > 0 {
 
 		// Fire an event that a skill has been used
-		events.AddToQueue(events.SkillUsed{user.UserId, skills.Protection, `pray`})
+		events.AddToQueue(events.SkillUsed{UserId: user.UserId, Skill: skills.Protection, Details: `pray`})
 
 		if mob := mobs.GetInstance(prayMobId); mob != nil {
 			room.SendText(fmt.Sprintf(`<ansi fg="username">%s</ansi> puts his hand over <ansi fg="mobname">%s</ansi> and begins to pray.`, user.Character.Name, mob.Character.Name), user.UserId)

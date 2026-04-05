@@ -55,7 +55,7 @@ func Peep(rest string, user *users.UserRecord, room *rooms.Room, flags events.Ev
 	if playerId > 0 || mobId > 0 {
 
 		// Fire an event that a skill has been used
-		events.AddToQueue(events.SkillUsed{user.UserId, skills.Peep, ``})
+		events.AddToQueue(events.SkillUsed{UserId: user.UserId, Skill: skills.Peep, Details: ``})
 
 		statusTxt := ""
 		invTxt := ""

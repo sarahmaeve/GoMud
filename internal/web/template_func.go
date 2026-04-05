@@ -3,8 +3,8 @@ package web
 import (
 	"fmt"
 	"html"
-	"strings"
 	"html/template"
+	"strings"
 
 	"github.com/GoMudEngine/GoMud/internal/configs"
 )

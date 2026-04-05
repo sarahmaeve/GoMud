@@ -41,7 +41,7 @@ func Aid(rest string, user *users.UserRecord, room *rooms.Room, flags events.Eve
 	if aidPlayerId > 0 {
 
 		// Fire an event that a skill has been used
-		events.AddToQueue(events.SkillUsed{user.UserId, skills.Protection, `aid`})
+		events.AddToQueue(events.SkillUsed{UserId: user.UserId, Skill: skills.Protection, Details: `aid`})
 
 		p := users.GetByUserId(aidPlayerId)
 

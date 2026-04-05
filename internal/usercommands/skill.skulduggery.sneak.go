@@ -41,7 +41,7 @@ func Sneak(rest string, user *users.UserRecord, room *rooms.Room, flags events.E
 	user.AddBuff(9, `skill`)
 
 	// Fire an event that a skill has been used
-	events.AddToQueue(events.SkillUsed{user.UserId, skills.Skulduggery, `sneak`})
+	events.AddToQueue(events.SkillUsed{UserId: user.UserId, Skill: skills.Skulduggery, Details: `sneak`})
 
 	return true, nil
 }

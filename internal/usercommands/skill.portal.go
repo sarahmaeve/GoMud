@@ -96,7 +96,7 @@ func Portal(rest string, user *users.UserRecord, room *rooms.Room, flags events.
 		}
 
 		// Fire an event that a skill has been used
-		events.AddToQueue(events.SkillUsed{user.UserId, skills.Portal, ``})
+		events.AddToQueue(events.SkillUsed{UserId: user.UserId, Skill: skills.Portal, Details: ``})
 
 		// move to portalTargetRoomId
 		if err := rooms.MoveToRoom(user.UserId, portalTargetRoomId); err == nil {
@@ -121,7 +121,7 @@ func Portal(rest string, user *users.UserRecord, room *rooms.Room, flags events.
 		if rest == "set" {
 
 			// Fire an event that a skill has been used
-			events.AddToQueue(events.SkillUsed{user.UserId, skills.Portal, `set`})
+			events.AddToQueue(events.SkillUsed{UserId: user.UserId, Skill: skills.Portal, Details: `set`})
 
 			user.Character.SetSetting("portal", strconv.Itoa(user.Character.RoomId))
 
@@ -135,7 +135,7 @@ func Portal(rest string, user *users.UserRecord, room *rooms.Room, flags events.
 		if rest == "unset" || rest == "clear" {
 
 			// Fire an event that a skill has been used
-			events.AddToQueue(events.SkillUsed{user.UserId, skills.Portal, `unset`})
+			events.AddToQueue(events.SkillUsed{UserId: user.UserId, Skill: skills.Portal, Details: `unset`})
 
 			user.Character.SetSetting("portal", "")
 
@@ -252,7 +252,7 @@ func Portal(rest string, user *users.UserRecord, room *rooms.Room, flags events.
 			)
 
 			// Fire an event that a skill has been used
-			events.AddToQueue(events.SkillUsed{user.UserId, skills.Portal, `open`})
+			events.AddToQueue(events.SkillUsed{UserId: user.UserId, Skill: skills.Portal, Details: `open`})
 
 			user.Character.SetSetting("portal:open", fmt.Sprintf("%d:%d", user.Character.RoomId, portalTargetRoomId))
 		}

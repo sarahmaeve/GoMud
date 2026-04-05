@@ -96,7 +96,7 @@ func Enchant(rest string, user *users.UserRecord, room *rooms.Room, flags events
 			}
 
 			// Fire an event that a skill has been used
-			events.AddToQueue(events.SkillUsed{user.UserId, skills.Enchant, `uncurse`})
+			events.AddToQueue(events.SkillUsed{UserId: user.UserId, Skill: skills.Enchant, Details: `uncurse`})
 
 			user.Character.RemoveItem(matchItem)
 			matchItem.Uncurse()
@@ -122,7 +122,7 @@ func Enchant(rest string, user *users.UserRecord, room *rooms.Room, flags events
 			}
 
 			// Fire an event that a skill has been used
-			events.AddToQueue(events.SkillUsed{user.UserId, skills.Enchant, `remove`})
+			events.AddToQueue(events.SkillUsed{UserId: user.UserId, Skill: skills.Enchant, Details: `remove`})
 
 			room.SendText(
 				fmt.Sprintf(`<ansi fg="username">%s</ansi> holds out their <ansi fg="itemname">%s</ansi> and slowly waves their hand over it. Runes appear to glow on the surface, which fade as they float away.`, user.Character.Name, matchItem.DisplayName()),
@@ -168,7 +168,7 @@ func Enchant(rest string, user *users.UserRecord, room *rooms.Room, flags events
 		}
 
 		// Fire an event that a skill has been used
-		events.AddToQueue(events.SkillUsed{user.UserId, skills.Enchant, ``})
+		events.AddToQueue(events.SkillUsed{UserId: user.UserId, Skill: skills.Enchant, Details: ``})
 
 		damageBonus := 0
 		defenseBonus := 0

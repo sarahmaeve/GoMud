@@ -30,6 +30,15 @@ var (
 	RoleAdmin string = "admin"
 )
 
+// unsentState holds input-in-progress fields for a UserRecord.
+// It lives on the heap as a pointer so that copying a UserRecord
+// (e.g., for serialization) does not copy the mutex.
+type unsentState struct {
+	mu          sync.Mutex
+	unsentText  string
+	suggestText string
+}
+
 type UserRecord struct {
 	UserId         int                   `yaml:"userid"`
 	Role           string                `yaml:"role"` // Roles group one or more admin commands
@@ -50,9 +59,7 @@ type UserRecord struct {
 	EventLog       UserLog               `yaml:"-"`                      // Do not retain in user file (for now)
 	LastMusic      string                `yaml:"-"`                      // Keeps track of the last music that was played
 	connectionId   uint64
-	unsentMu       sync.Mutex // guards unsentText and suggestText
-	unsentText     string
-	suggestText    string
+	unsent         *unsentState `yaml:"-"` // pointer so copying UserRecord does not copy the mutex
 	connectionTime time.Time
 	lastInputRound uint64
 	tempDataStore  map[string]any
@@ -78,6 +85,7 @@ func NewUserRecord(userId int, connectionId uint64) *UserRecord {
 		connectionTime: time.Now(),
 		tempDataStore:  make(map[string]any),
 		EventLog:       UserLog{},
+		unsent:         &unsentState{},
 	}
 
 	if c.Death.PermaDeath {
@@ -502,16 +510,22 @@ func (u *UserRecord) RoundTick() {
 // I don't like the idea of capturing it every time they hit a key though
 // There is probably a better way.
 func (u *UserRecord) SetUnsentText(t string, suggest string) {
-	u.unsentMu.Lock()
-	defer u.unsentMu.Unlock()
-	u.unsentText = t
-	u.suggestText = suggest
+	if u.unsent == nil {
+		u.unsent = &unsentState{}
+	}
+	u.unsent.mu.Lock()
+	defer u.unsent.mu.Unlock()
+	u.unsent.unsentText = t
+	u.unsent.suggestText = suggest
 }
 
 func (u *UserRecord) GetUnsentText() (unsent string, suggestion string) {
-	u.unsentMu.Lock()
-	defer u.unsentMu.Unlock()
-	return u.unsentText, u.suggestText
+	if u.unsent == nil {
+		return "", ""
+	}
+	u.unsent.mu.Lock()
+	defer u.unsent.mu.Unlock()
+	return u.unsent.unsentText, u.unsent.suggestText
 }
 
 // Replace a characters information with another.

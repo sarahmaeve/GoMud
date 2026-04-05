@@ -15,9 +15,9 @@ import (
 //
 // LIFO defer order used inside the goroutine:
 //
-//	1. defer wg.Done()       — registered first, runs last
-//	2. defer observation()   — registered second, runs second
-//	3. defer recoverConnection() — registered last, runs first
+//  1. defer wg.Done()       — registered first, runs last
+//  2. defer observation()   — registered second, runs second
+//  3. defer recoverConnection() — registered last, runs first
 //
 // recoverConnection consumes the panic. The observation defer then sees
 // recover() == nil (no active panic), confirming recovery succeeded.
