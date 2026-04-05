@@ -24,6 +24,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -171,6 +172,122 @@ func TestStartHeartbeat_GoroutineExitsOnStop(t *testing.T) {
 	if final > before+2 {
 		t.Errorf("goroutine count after stop: %d; baseline before start: %d — "+
 			"likely goroutine leak; expected close to baseline", final, before)
+	}
+}
+
+// TestHeartbeatStop_DoubleStop verifies that calling stop() twice in sequence
+// on the same heartbeatManager does NOT panic.
+//
+// Before the sync.Once fix, the second call would execute close(hm.stopChan)
+// on an already-closed channel and panic with "close of closed channel".
+//
+// Paranoia check: temporarily remove the stopOnce.Do wrapper and run this
+// test; it will panic with "close of closed channel".  Restore to confirm
+// the panic is gone.
+func TestHeartbeatStop_DoubleStop(t *testing.T) {
+	server := wsEchoServer(t)
+	defer server.Close()
+
+	wsConn := dialWS(t, server.URL)
+	defer wsConn.Close()
+
+	cfg := HeartbeatConfig{
+		PongWait:   5 * time.Second,
+		PingPeriod: 10 * time.Second,
+		WriteWait:  2 * time.Second,
+	}
+
+	cd := &ConnectionDetails{wsConn: wsConn}
+	require.NoError(t, cd.StartHeartbeat(cfg))
+	require.NotNil(t, cd.heartbeat)
+
+	hm := cd.heartbeat
+
+	// First stop: should signal the goroutine and wait for exit.
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		hm.stop() // first call — closes stopChan, waits for goroutine
+	}()
+	select {
+	case <-done:
+		// first stop returned cleanly
+	case <-time.After(3 * time.Second):
+		t.Fatal("first stop() did not return within 3 s")
+	}
+
+	// Second stop: must not panic ("close of closed channel").
+	// The goroutine is already gone, so wg.Wait() returns immediately.
+	done2 := make(chan struct{})
+	go func() {
+		defer close(done2)
+		hm.stop() // second call — must be a no-op on the channel, not a panic
+	}()
+	select {
+	case <-done2:
+		// second stop returned cleanly — fix is confirmed
+	case <-time.After(3 * time.Second):
+		t.Fatal("second stop() did not return within 3 s — wg.Wait() may be blocking")
+	}
+}
+
+// TestHeartbeatStop_ConcurrentStop verifies that calling stop() from many
+// goroutines simultaneously does not cause a panic.
+//
+// Before the sync.Once fix, any goroutine that won the race to close(stopChan)
+// would succeed, but all subsequent goroutines would panic.
+//
+// Paranoia check: temporarily remove the stopOnce.Do wrapper; this test will
+// panic with "close of closed channel" (or the race detector will flag it).
+func TestHeartbeatStop_ConcurrentStop(t *testing.T) {
+	server := wsEchoServer(t)
+	defer server.Close()
+
+	wsConn := dialWS(t, server.URL)
+	defer wsConn.Close()
+
+	cfg := HeartbeatConfig{
+		PongWait:   5 * time.Second,
+		PingPeriod: 10 * time.Second,
+		WriteWait:  2 * time.Second,
+	}
+
+	cd := &ConnectionDetails{wsConn: wsConn}
+	require.NoError(t, cd.StartHeartbeat(cfg))
+	require.NotNil(t, cd.heartbeat)
+
+	hm := cd.heartbeat
+
+	const goroutines = 10
+
+	// Use a gate channel so all goroutines start as close together as possible,
+	// maximising the probability of simultaneous close(stopChan) attempts.
+	gate := make(chan struct{})
+
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+	for i := 0; i < goroutines; i++ {
+		go func() {
+			defer wg.Done()
+			<-gate    // wait for the start gun
+			hm.stop() // must not panic, regardless of which goroutine runs first
+		}()
+	}
+
+	// Fire the start gun — all goroutines race to call stop() concurrently.
+	close(gate)
+
+	// Wait for all goroutines, with a hard deadline so the test cannot hang.
+	allDone := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(allDone)
+	}()
+	select {
+	case <-allDone:
+		// all goroutines returned without panicking — fix confirmed
+	case <-time.After(5 * time.Second):
+		t.Fatal("one or more concurrent stop() calls did not return within 5 s")
 	}
 }
 
