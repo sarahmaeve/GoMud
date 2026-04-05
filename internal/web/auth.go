@@ -118,8 +118,14 @@ func doBasicAuth(next http.HandlerFunc) http.HandlerFunc {
 			}
 		}
 
-		// Record the failed attempt before responding.
-		webAuthLimiter.RecordFailure(ip)
+		// Only record a failed attempt if credentials were actually provided.
+		// An empty Authorization header is part of the RFC 7617 challenge-response
+		// flow (browser must request without credentials first to receive 401 +
+		// WWW-Authenticate). Counting that as a failure would lock out legitimate
+		// admins on their initial page load.
+		if authHeader != "" {
+			webAuthLimiter.RecordFailure(ip)
+		}
 
 		// If the Authentication header is not present, is invalid, or the
 		// username or password is wrong, then set a WWW-Authenticate
