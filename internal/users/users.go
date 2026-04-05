@@ -274,12 +274,15 @@ func LogOutUserByConnectionId(connectionId connections.ConnectionId) error {
 		if u != nil {
 			u.Character.Validate()
 			SaveUser(*u)
-		}
 
-		delete(userManager.Users, u.UserId)
-		delete(userManager.Usernames, u.Username)
-		delete(userManager.Connections, u.connectionId)
-		delete(userManager.UserConnections, u.UserId)
+			delete(userManager.Users, u.UserId)
+			delete(userManager.Usernames, u.Username)
+			delete(userManager.Connections, u.connectionId)
+			delete(userManager.UserConnections, u.UserId)
+		} else {
+			// Connection exists but user record is missing — clean up the connection entry
+			delete(userManager.Connections, connectionId)
+		}
 
 		return nil
 	}
