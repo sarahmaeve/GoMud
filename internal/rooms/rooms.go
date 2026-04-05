@@ -97,6 +97,14 @@ type Room struct {
 	visitors      map[VisitorType]map[int]uint64 // list of user IDs that have visited this room, and the last round they did
 	lastVisited   uint64                         // last round a visitor was in the room
 	tempDataStore map[string]any                 // Temporary data store for the room
+
+	// instanceOverlayCorrupt is set by LoadRoomInstance when the stored
+	// overlay payload fails to unmarshal. SaveRoomInstance inspects this
+	// flag before deleting an empty overlay: without it, a corrupt row
+	// would be silently deleted on the next save because the template
+	// and the (partially-loaded) room would compare equal, tripping the
+	// "no overlay needed" branch (H1).
+	instanceOverlayCorrupt bool
 }
 
 type TrainingRange struct {

@@ -136,7 +136,12 @@ func LoadRoomInstance(roomId int) *Room {
 	if err := yaml.Unmarshal(data.Payload, room); err != nil {
 		mudlog.Error("LoadRoomInstance: unmarshal payload", "roomId", roomId, "error", err.Error())
 		// Corrupt overlay — log and return template-only room rather
-		// than failing the load entirely.
+		// than failing the load entirely. Mark the room so the next
+		// SaveRoomInstance does NOT self-delete the corrupt overlay
+		// (H1): without this flag, a template-equal comparison would
+		// trip the "no overlay needed" branch and DELETE the row that
+		// an operator might still be able to recover from.
+		room.instanceOverlayCorrupt = true
 		return room
 	}
 
@@ -319,7 +324,19 @@ func SaveRoomInstance(r Room) error {
 
 	// If the instance is identical to the template (no overlay needed),
 	// delete any existing overlay rather than persisting an empty one.
+	//
+	// EXCEPT when the room was loaded with a corrupt overlay: in that
+	// case the in-memory state is template-only because the overlay
+	// payload failed to unmarshal, and deleting the row would destroy
+	// the last copy of whatever state was originally there. Preserve
+	// the corrupt row for operator inspection and log loudly (H1).
 	if len(instanceSaveData) == 0 {
+		if r.instanceOverlayCorrupt {
+			mudlog.Warn("SaveRoomInstance: preserving corrupt overlay row",
+				"roomId", r.RoomId, "zone", r.Zone,
+				"reason", "overlay failed to unmarshal on load; not deleting so the row can be inspected")
+			return nil
+		}
 		return store.DeleteRoomInstance(r.RoomId)
 	}
 
@@ -328,12 +345,20 @@ func SaveRoomInstance(r Room) error {
 		return err
 	}
 
-	return store.SaveRoomInstance(&persistence.RoomInstanceData{
+	// Log enqueue errors centrally — callers in roommanager.go and
+	// save_and_load.go drop the return value, so without logging here a
+	// queue saturation or closed-store error would be silent overlay
+	// loss (C3).
+	if err := store.SaveRoomInstance(&persistence.RoomInstanceData{
 		RoomId:    r.RoomId,
 		Zone:      r.Zone,
 		Payload:   payload,
 		UpdatedAt: time.Now(),
-	})
+	}); err != nil {
+		mudlog.Error("SaveRoomInstance enqueue", "roomId", r.RoomId, "zone", r.Zone, "error", err.Error())
+		return err
+	}
+	return nil
 }
 
 func loadRoomFromFile(roomFilePath string) (*Room, error) {

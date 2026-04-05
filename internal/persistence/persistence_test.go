@@ -488,6 +488,52 @@ func TestClose_RaceWithSaveUser(t *testing.T) {
 	}
 }
 
+// TestCommitBatch_BadRowDoesNotPoisonBatch is a regression test for H7:
+// before the fix, a single SQL exec failure inside commitBatch would
+// `return` early — leaving the deferred rollback to abort the whole
+// transaction. A 500-op batch with one malformed row would lose ALL
+// 500 writes. The fix wraps each op in a SAVEPOINT: on failure, roll
+// back to the savepoint, log the bad op, and continue. The containing
+// transaction commits everything else.
+//
+// This test enqueues two valid users and one bad user (duplicate
+// username, which trips the UNIQUE constraint on users.username),
+// flushes, and asserts the two valid users are present.
+func TestCommitBatch_BadRowDoesNotPoisonBatch(t *testing.T) {
+	s := openTestStore(t)
+
+	good1 := makeUser(1001, "alice")
+	bad := makeUser(1002, "alice") // same username → UNIQUE constraint
+	good2 := makeUser(1003, "bob")
+
+	require.NoError(t, s.SaveUser(good1))
+	require.NoError(t, s.SaveUser(bad))
+	require.NoError(t, s.SaveUser(good2))
+	require.NoError(t, s.Flush())
+
+	// Whichever alice was processed first wins the UNIQUE slot; the
+	// other trips the constraint and is rolled back to its savepoint.
+	// Bob is unrelated and must survive regardless.
+	gotAlice, err := s.LoadUserByUsername("alice")
+	require.NoError(t, err, "alice must still be committed")
+	assert.Contains(t, []int{1001, 1002}, gotAlice.UserId, "one of the two alices must have landed")
+
+	gotBob, err := s.LoadUserByUsername("bob")
+	require.NoError(t, err, "bob must still be committed — a bad row earlier in the batch must not poison later ops (H7)")
+	assert.Equal(t, 1003, gotBob.UserId)
+
+	// Exactly one alice should exist.
+	var alicesExist int
+	for _, id := range []int{1001, 1002} {
+		if _, err := s.LoadUser(id); err == nil {
+			alicesExist++
+		} else {
+			assert.ErrorIs(t, err, ErrNotFound)
+		}
+	}
+	assert.Equal(t, 1, alicesExist, "exactly one alice row should exist after savepoint rollback")
+}
+
 // testContext returns a context for use in tests.
 func testContext() context.Context {
 	return context.Background()

@@ -43,8 +43,8 @@ import (
 	"github.com/GoMudEngine/GoMud/internal/mobs"
 	"github.com/GoMudEngine/GoMud/internal/mudlog"
 	"github.com/GoMudEngine/GoMud/internal/mutators"
-	"github.com/GoMudEngine/GoMud/internal/pets"
 	"github.com/GoMudEngine/GoMud/internal/persistence"
+	"github.com/GoMudEngine/GoMud/internal/pets"
 	"github.com/GoMudEngine/GoMud/internal/plugins"
 	"github.com/GoMudEngine/GoMud/internal/quests"
 	"github.com/GoMudEngine/GoMud/internal/races"
@@ -1093,21 +1093,38 @@ func createAdminUser(username, password string) error {
 		return fmt.Errorf("set password: %w", err)
 	}
 
+	// Set the admin role BEFORE CreateUser so the row is inserted with
+	// RoleAdmin in a single write. A previous version called CreateUser
+	// (which wrote RoleUser) then a second SaveUser to promote — leaving
+	// a crash window where the bootstrap admin could persist as a regular
+	// user. CreateUser now honors a caller-set role.
+	u.Role = users.RoleAdmin
+
 	if err := users.CreateUser(u); err != nil {
 		return fmt.Errorf("create user: %w", err)
 	}
 
-	// Promote to admin and persist the role change.
-	u.Role = users.RoleAdmin
-	if err := users.SaveUser(*u); err != nil {
-		return fmt.Errorf("save admin role: %w", err)
+	// Flush so the admin row is committed before we continue startup.
+	// Verifying the commit here catches persistence failures at bootstrap
+	// rather than surfacing them later when an operator tries to log in.
+	s := users.GetStore()
+	if s == nil {
+		return fmt.Errorf("persistence store not initialized")
+	}
+	if err := s.Flush(); err != nil {
+		return fmt.Errorf("flush admin user: %w", err)
 	}
 
-	// Flush so the admin row is committed before we continue startup.
-	if s := users.GetStore(); s != nil {
-		if err := s.Flush(); err != nil {
-			return fmt.Errorf("flush admin user: %w", err)
-		}
+	// Verify the row actually landed (H6). Flush ack only means the
+	// worker committed the batch; if the exec failed mid-transaction
+	// the error is logged but not propagated. Reading back the user
+	// confirms the bootstrap admin truly exists.
+	loaded, err := s.LoadUserByUsername(username)
+	if err != nil {
+		return fmt.Errorf("verify admin user after flush: %w", err)
+	}
+	if loaded.Role != users.RoleAdmin {
+		return fmt.Errorf("admin user persisted with wrong role %q", loaded.Role)
 	}
 
 	return nil

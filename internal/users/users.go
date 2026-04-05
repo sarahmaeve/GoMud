@@ -19,6 +19,16 @@ import (
 
 var (
 	userManager *ActiveUsers = newUserManager()
+
+	// createUserMu serializes the CreateUser path end-to-end. Without
+	// this, two concurrent CreateUser calls would each compute the same
+	// "next" user id via GetUniqueUserId (because the async store write
+	// from the first call hasn't landed yet), issue two SaveUsers with
+	// the same id (last-writer-wins in the coalesced batch), and clobber
+	// each other in userManager.Users. The mutex is narrowly scoped to
+	// the CreateUser path — it does not block login, save, or any
+	// read-only operations (H3).
+	createUserMu sync.Mutex
 )
 
 type ActiveUsers struct {
@@ -347,9 +357,30 @@ func CreateUser(u *UserRecord) error {
 		return errors.New("that username is not allowed: " + err.Error())
 	}
 
+	// Serialize the entire create path. GetUniqueUserId computes the
+	// next id from the store + in-memory active users; a concurrent
+	// CreateUser would otherwise race the allocation and hand out the
+	// same id twice (H3).
+	createUserMu.Lock()
+	defer createUserMu.Unlock()
+
+	// Re-check existence under the lock so two concurrent signups for
+	// the same username don't both succeed (ValidateName's Exists check
+	// above races the same way as the id allocation did).
+	if Exists(u.Username) {
+		return errors.New("that username is already in use")
+	}
+
 	// GetUniqueUserId reads from the store — call before acquiring mu.
 	u.UserId = GetUniqueUserId()
-	u.Role = RoleUser
+	// Default to RoleUser if the caller hasn't set one. Don't clobber a
+	// role the caller explicitly assigned — createAdminUser relies on
+	// being able to insert the admin row with RoleAdmin in a single
+	// write, so a crash between insert and promotion cannot leave the
+	// bootstrap admin as a regular user.
+	if u.Role == "" {
+		u.Role = RoleUser
+	}
 
 	// Persist first so a crash before the in-memory insert doesn't leave
 	// a user dangling in RAM without durability. SaveUser is async; the
@@ -533,15 +564,24 @@ func CharacterNameSearch(nameToFind string) (foundUserId int, foundUserName stri
 // worker handles batching regardless of call origin).
 func SaveUser(u UserRecord, isAutoSave ...bool) error {
 	if err := requireStore(); err != nil {
+		mudlog.Error("SaveUser", "username", u.Username, "userId", u.UserId, "error", err.Error())
 		return err
 	}
 
 	data, err := userRecordToData(&u)
 	if err != nil {
+		mudlog.Error("SaveUser marshal", "username", u.Username, "userId", u.UserId, "error", err.Error())
 		return fmt.Errorf("SaveUser: %w", err)
 	}
 
-	return store.SaveUser(data)
+	// Log errors centrally — C3: many call sites drop SaveUser's return
+	// value, so without logging here an enqueue failure (queue saturated,
+	// store closed, etc.) would be silent data loss.
+	if err := store.SaveUser(data); err != nil {
+		mudlog.Error("SaveUser enqueue", "username", u.Username, "userId", u.UserId, "error", err.Error())
+		return err
+	}
+	return nil
 }
 
 // GetUniqueUserId returns the next available user id by scanning both

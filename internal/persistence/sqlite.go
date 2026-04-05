@@ -317,12 +317,28 @@ func (s *sqliteStore) commitBatch(batch map[opKey]writeOp) {
 		}
 	}()
 
+	// Execute each op inside its own SAVEPOINT. A single malformed row
+	// would otherwise poison the whole batch — hundreds of good writes
+	// rolled back because one user record tripped a constraint or had a
+	// driver bug (H7). With per-op savepoints, we ROLLBACK TO the
+	// savepoint on failure, log the bad op, and continue. The containing
+	// transaction commits everything that didn't fail.
 	var writesExecuted uint64
+	var failedOps int
+	spN := 0
 	for _, op := range batch {
+		spN++
+		spName := fmt.Sprintf("sp%d", spN)
+		if _, spErr := tx.ExecContext(ctx, "SAVEPOINT "+spName); spErr != nil {
+			log.Printf("persistence: savepoint %s failed: %v", spName, spErr)
+			return
+		}
+
+		var execErr error
 		switch op.key.kind {
 		case opUserSave:
 			u := op.data.(*UserData)
-			_, err = tx.ExecContext(ctx, `
+			_, execErr = tx.ExecContext(ctx, `
 				INSERT INTO users (user_id, username, password, role, joined, last_login, email, data)
 				VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 				ON CONFLICT(user_id) DO UPDATE SET
@@ -335,10 +351,10 @@ func (s *sqliteStore) commitBatch(batch map[opKey]writeOp) {
 					data       = excluded.data
 			`, u.UserId, u.Username, u.Password, u.Role, u.Joined.Unix(), u.LastLogin.Unix(), u.Email, u.Payload)
 		case opUserDelete:
-			_, err = tx.ExecContext(ctx, `DELETE FROM users WHERE user_id = ?`, op.key.id)
+			_, execErr = tx.ExecContext(ctx, `DELETE FROM users WHERE user_id = ?`, op.key.id)
 		case opRoomSave:
 			r := op.data.(*RoomInstanceData)
-			_, err = tx.ExecContext(ctx, `
+			_, execErr = tx.ExecContext(ctx, `
 				INSERT INTO room_instances (room_id, zone, data, updated_at)
 				VALUES (?, ?, ?, ?)
 				ON CONFLICT(room_id) DO UPDATE SET
@@ -347,13 +363,31 @@ func (s *sqliteStore) commitBatch(batch map[opKey]writeOp) {
 					updated_at = excluded.updated_at
 			`, r.RoomId, r.Zone, r.Payload, r.UpdatedAt.UnixNano())
 		case opRoomDelete:
-			_, err = tx.ExecContext(ctx, `DELETE FROM room_instances WHERE room_id = ?`, op.key.id)
+			_, execErr = tx.ExecContext(ctx, `DELETE FROM room_instances WHERE room_id = ?`, op.key.id)
 		}
-		if err != nil {
-			log.Printf("persistence: exec failed for op kind=%d id=%d: %v", op.key.kind, op.key.id, err)
+
+		if execErr != nil {
+			log.Printf("persistence: exec failed for op kind=%d id=%d: %v — rolling back to savepoint and continuing", op.key.kind, op.key.id, execErr)
+			if _, rbErr := tx.ExecContext(ctx, "ROLLBACK TO SAVEPOINT "+spName); rbErr != nil {
+				log.Printf("persistence: rollback to savepoint %s failed: %v — aborting batch", spName, rbErr)
+				return
+			}
+			if _, relErr := tx.ExecContext(ctx, "RELEASE SAVEPOINT "+spName); relErr != nil {
+				log.Printf("persistence: release savepoint %s after rollback failed: %v — aborting batch", spName, relErr)
+				return
+			}
+			failedOps++
+			continue
+		}
+
+		if _, relErr := tx.ExecContext(ctx, "RELEASE SAVEPOINT "+spName); relErr != nil {
+			log.Printf("persistence: release savepoint %s failed: %v — aborting batch", spName, relErr)
 			return
 		}
 		writesExecuted++
+	}
+	if failedOps > 0 {
+		log.Printf("persistence: batch had %d failed op(s) out of %d — successful ops still committed", failedOps, len(batch))
 	}
 
 	if err := tx.Commit(); err != nil {
