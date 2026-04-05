@@ -123,7 +123,7 @@ type ConnectionDetails struct {
 	lastInputTime     time.Time
 	conn              net.Conn
 	wsConn            *websocket.Conn
-	wsLock            sync.Mutex
+	writeMu           sync.Mutex // serializes Write() calls and protects SetWriteDeadline/Write/reset sequences
 	handlerMutex      sync.Mutex
 	inputHandlerNames []string
 	inputHandlers     []InputHandler
@@ -228,8 +228,8 @@ func (cd *ConnectionDetails) Write(p []byte) (n int, err error) {
 	}
 
 	if cd.wsConn != nil {
-		cd.wsLock.Lock()
-		defer cd.wsLock.Unlock()
+		cd.writeMu.Lock()
+		defer cd.writeMu.Unlock()
 
 		// If this isn't caught and avoided, lots of stuff goes wrong.
 		// Websocket client complains, disconnects, error is rasised: close 1002 (protocol error): Invalid UTF-8 in text frame
@@ -251,6 +251,13 @@ func (cd *ConnectionDetails) Write(p []byte) (n int, err error) {
 		}
 		return len(p), nil
 	}
+
+	// Serialize telnet writes: SetWriteDeadline + Write + reset must run as
+	// an atomic sequence, otherwise concurrent writers can overwrite each
+	// other's deadline state (a Write can end up running with a deadline
+	// set by another goroutine, or with no deadline at all after a reset).
+	cd.writeMu.Lock()
+	defer cd.writeMu.Unlock()
 
 	if err := cd.conn.SetWriteDeadline(time.Now().Add(writeDeadline)); err != nil {
 		return 0, err
@@ -325,7 +332,7 @@ func NewConnectionDetails(connId ConnectionId, c net.Conn, wsC *websocket.Conn, 
 		connectionId: connId,
 		conn:         c,
 		wsConn:       wsC,
-		wsLock:       sync.Mutex{},
+		writeMu:      sync.Mutex{},
 		// Track client settings
 		clientSettings: ClientSettings{
 			Display: DisplaySettings{ScreenWidth: 80, ScreenHeight: 40}, // Default to 80x40
