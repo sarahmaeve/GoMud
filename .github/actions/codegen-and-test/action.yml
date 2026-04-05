@@ -1,11 +1,32 @@
 name: "Codegen and Test"
-description: "Run go generate, go vet, and go test"
+description: "Run go generate, formatting/lint checks, and go test"
 runs:
   using: "composite"
   steps:
     - run: go generate ./...
       shell: bash
+    - name: gofmt check
+      shell: bash
+      run: |
+        fmt_out=$(gofmt -l .)
+        if [ -n "$fmt_out" ]; then
+          echo "The following files are not gofmt'd:"
+          echo "$fmt_out"
+          echo ""
+          echo "Run 'gofmt -w .' locally to fix."
+          exit 1
+        fi
     - run: go vet ./...
+      shell: bash
+    - name: Install staticcheck
+      shell: bash
+      run: go install honnef.co/go/tools/cmd/staticcheck@latest
+    - run: staticcheck ./...
+      shell: bash
+    - name: Install errcheck
+      shell: bash
+      run: go install github.com/kisielk/errcheck@latest
+    - run: errcheck ./...
       shell: bash
     - run: go test -race ./...
       shell: bash

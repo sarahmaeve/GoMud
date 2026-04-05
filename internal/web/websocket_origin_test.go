@@ -14,9 +14,9 @@ func TestCheckWebSocketOrigin(t *testing.T) {
 
 	tests := []struct {
 		name           string
-		origin         string   // value of the Origin request header ("" means omit)
-		requestHost    string   // value of the Host request header
-		allowedOrigins string   // AllowedWebOrigins config value ("" means unset)
+		origin         string // value of the Origin request header ("" means omit)
+		requestHost    string // value of the Host request header
+		allowedOrigins string // AllowedWebOrigins config value ("" means unset)
 		wantAllowed    bool
 	}{
 		{

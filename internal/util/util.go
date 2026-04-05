@@ -30,7 +30,7 @@ import (
 var (
 	turnCount    atomic.Uint64
 	roundCount   atomic.Uint64
-	timeTrackers = map[string]*Accumulator{}
+	timeTrackers        = map[string]*Accumulator{}
 	serverAddr   string = `Unknown`
 
 	strippablePrepositions = []string{

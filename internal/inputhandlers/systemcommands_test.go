@@ -56,11 +56,11 @@ func TestTrySystemCommand_AuthorizationChecks(t *testing.T) {
 	}
 
 	tests := []struct {
-		name         string
-		cmd          string
-		connId       connections.ConnectionId
-		wantHandled  bool
-		description  string
+		name        string
+		cmd         string
+		connId      connections.ConnectionId
+		wantHandled bool
+		description string
 	}{
 		{
 			name:        "shutdown rejected for non-admin user",

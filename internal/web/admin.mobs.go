@@ -1,10 +1,10 @@
 package web
 
 import (
+	"html/template"
 	"net/http"
 	"sort"
 	"strconv"
-	"html/template"
 
 	"github.com/GoMudEngine/GoMud/internal/buffs"
 	"github.com/GoMudEngine/GoMud/internal/characters"

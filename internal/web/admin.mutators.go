@@ -1,9 +1,9 @@
 package web
 
 import (
+	"html/template"
 	"net/http"
 	"sort"
-	"html/template"
 
 	"github.com/GoMudEngine/GoMud/internal/buffs"
 	"github.com/GoMudEngine/GoMud/internal/colorpatterns"

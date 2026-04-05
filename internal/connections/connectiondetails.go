@@ -324,8 +324,8 @@ func NewConnectionDetails(connId ConnectionId, c net.Conn, wsC *websocket.Conn, 
 		state:        Login,
 		connectionId: connId,
 		conn:         c,
-		wsConn:        wsC,
-		wsLock:        sync.Mutex{},
+		wsConn:       wsC,
+		wsLock:       sync.Mutex{},
 		// Track client settings
 		clientSettings: ClientSettings{
 			Display: DisplaySettings{ScreenWidth: 80, ScreenHeight: 40}, // Default to 80x40
