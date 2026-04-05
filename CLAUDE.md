@@ -52,4 +52,4 @@ The `planning/` directory (gitignored) contains detailed review findings and loc
 - `planning/todo-code-review-v2.md` — consolidated code review findings (primary reference)
 - `planning/review-comparison.md` — comparison of review approaches
 - `planning/localtesting.md` — how to run the server locally
-- `planning/todo-remove-goja.md` — future consideration for scripting engine replacement
+- `planning/upstream-candidates.md` — fork commits ready to cherry-pick to upstream
