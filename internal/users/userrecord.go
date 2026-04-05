@@ -2,6 +2,7 @@ package users
 
 import (
 	"crypto/md5"
+	"crypto/subtle"
 	"fmt"
 	"math"
 	"math/big"
@@ -107,11 +108,14 @@ func (u *UserRecord) PasswordMatches(input string) bool {
 	}
 
 	// Migration: check if stored password is old unsalted SHA256 format.
-	if u.Password == util.Hash(input) {
-		// Re-hash with bcrypt so subsequent logins use the secure path.
-		if hash, err := bcrypt.GenerateFromPassword([]byte(input), bcrypt.DefaultCost); err == nil {
-			u.Password = string(hash)
-		}
+	// Uses constant-time comparison to avoid timing side channels.
+	// Note: legacy SHA256 hashes are NOT upgraded in place — that would
+	// require write synchronization on a read path. Users on the legacy
+	// hash migrate automatically when they next change their password via
+	// SetPassword (which stores bcrypt). A future administrative tool
+	// could batch-migrate legacy hashes under the userManager lock.
+	legacyHash := util.Hash(input)
+	if subtle.ConstantTimeCompare([]byte(u.Password), []byte(legacyHash)) == 1 {
 		return true
 	}
 
