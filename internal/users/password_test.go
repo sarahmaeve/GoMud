@@ -2,6 +2,7 @@ package users
 
 import (
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/GoMudEngine/GoMud/internal/configs"
@@ -123,40 +124,81 @@ func TestUserRecord_PasswordMatches_DoesNotAcceptHashOfHash(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// PasswordMatches — SHA256 migration path
+// PasswordMatches — SHA256 legacy path (no in-place upgrade)
 // ---------------------------------------------------------------------------
 
-func TestUserRecord_PasswordMatches_MigratesOldSHA256Hash(t *testing.T) {
+// TestUserRecord_PasswordMatches_LegacySHA256_StillWorks verifies that a user
+// whose password is stored as an unsalted SHA256 hash can still log in.
+func TestUserRecord_PasswordMatches_LegacySHA256_StillWorks(t *testing.T) {
 	t.Parallel()
 
 	const pw = "legacy-password"
 	u := newTestUser()
-	// Simulate a legacy record: password stored as unsalted SHA256.
 	u.Password = util.Hash(pw)
 
 	if !u.PasswordMatches(pw) {
 		t.Fatal("PasswordMatches returned false for a valid legacy SHA256 password")
 	}
+}
 
-	// After a successful migration match the stored value must now be a bcrypt hash.
-	if !strings.HasPrefix(u.Password, "$2a$") && !strings.HasPrefix(u.Password, "$2b$") {
-		t.Errorf("password was not re-hashed to bcrypt after migration; got %q", u.Password)
+// TestUserRecord_PasswordMatches_LegacySHA256_NotUpgraded verifies that
+// PasswordMatches does NOT upgrade the stored SHA256 hash to bcrypt in place.
+// This is the key behavioral change from the old code: no in-place upgrade
+// means no unsynchronized write to u.Password on the read path (Bug A fix).
+func TestUserRecord_PasswordMatches_LegacySHA256_NotUpgraded(t *testing.T) {
+	t.Parallel()
+
+	const pw = "legacy-password"
+	u := newTestUser()
+	originalHash := util.Hash(pw)
+	u.Password = originalHash
+
+	u.PasswordMatches(pw)
+
+	// The stored password must still be the SHA256 hash, not a bcrypt hash.
+	if u.Password != originalHash {
+		t.Errorf("PasswordMatches upgraded the stored hash in place; got %q, want original SHA256 %q", u.Password, originalHash)
+	}
+	if strings.HasPrefix(u.Password, "$2a$") || strings.HasPrefix(u.Password, "$2b$") {
+		t.Errorf("PasswordMatches re-hashed to bcrypt in place; stored value is now %q", u.Password)
 	}
 }
 
-func TestUserRecord_PasswordMatches_MigratedHashWorksOnNextLogin(t *testing.T) {
+// TestUserRecord_PasswordMatches_LegacySHA256_NoDataRace verifies that
+// concurrent PasswordMatches calls on a SHA256-format UserRecord do not cause
+// a data race. Run with -race. The old code wrote u.Password = string(hash)
+// without synchronization; the new code has no write on this path at all.
+func TestUserRecord_PasswordMatches_LegacySHA256_NoDataRace(t *testing.T) {
 	t.Parallel()
 
 	const pw = "legacy-password"
 	u := newTestUser()
 	u.Password = util.Hash(pw)
 
-	// First login: triggers migration.
-	u.PasswordMatches(pw)
+	const goroutines = 50
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+	for i := 0; i < goroutines; i++ {
+		go func() {
+			defer wg.Done()
+			if !u.PasswordMatches(pw) {
+				t.Errorf("PasswordMatches returned false for correct legacy password")
+			}
+		}()
+	}
+	wg.Wait()
+}
 
-	// Second login: must succeed against the new bcrypt hash.
-	if !u.PasswordMatches(pw) {
-		t.Error("PasswordMatches returned false after bcrypt migration on second login")
+// TestUserRecord_PasswordMatches_LegacySHA256_WrongPassword verifies that an
+// incorrect password is rejected even when the stored hash is a SHA256 hash.
+func TestUserRecord_PasswordMatches_LegacySHA256_WrongPassword(t *testing.T) {
+	t.Parallel()
+
+	u := newTestUser()
+	u.Password = util.Hash("correct-password")
+
+	if u.PasswordMatches("wrong-password") {
+		t.Error("PasswordMatches returned true for incorrect password against SHA256 stored hash")
 	}
 }
 
