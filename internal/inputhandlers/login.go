@@ -16,7 +16,16 @@ import (
 	"github.com/GoMudEngine/GoMud/internal/users"
 )
 
-var defaultRateLimiter = ratelimit.New()
+// rateLimiter is the interface consumed by the login handler.
+// Using an interface allows tests to inject a stub without touching the real
+// ratelimit.Limiter implementation.
+type rateLimiter interface {
+	IsBlocked(ip string) bool
+	RecordFailure(ip string)
+	RecordSuccess(ip string)
+}
+
+var defaultRateLimiter rateLimiter = ratelimit.New()
 
 // FinalizeLoginOrCreate is called after all prompts are successfully answered.
 func FinalizeLoginOrCreate(results map[string]string, sharedState map[string]any, clientInput *connections.ClientInput) bool {
@@ -39,25 +48,6 @@ func FinalizeLoginOrCreate(results map[string]string, sharedState map[string]any
 				return false
 			}
 
-			if results["kickuser"] == "y" {
-
-				connDetails = connections.Get(clientInput.ConnectionId)
-
-				// Disconnect/kick the user currently connected
-				userid := users.FindUserId(results["username"])
-				user := users.GetByUserId(userid)
-
-				existingConnectionId := user.ConnectionId()
-
-				// Send a goodbye message to the currently connected user
-				tplTxt, _ := templates.Process("goodbye", nil)
-				connections.SendTo([]byte(templates.AnsiParse(tplTxt)), existingConnectionId)
-
-				users.SetZombieUser(userid)
-				connections.Kick(existingConnectionId, fmt.Sprintf(`Duplicate login (ip: %s)`, connDetails.RemoteAddr()))
-
-			}
-
 			// Existing User Login Logic (No changes needed)
 			tmpUser, err := users.LoadUser(username)
 			if err != nil {
@@ -74,6 +64,30 @@ func FinalizeLoginOrCreate(results map[string]string, sharedState map[string]any
 				connections.SendTo(term.CRLF, clientInput.ConnectionId)
 				connections.Remove(clientInput.ConnectionId)
 				return false // Indicate failure, connection removed
+			}
+
+			// Password verified. Now kick any existing session if the user requested it.
+			// Performing the kick AFTER password verification prevents an attacker
+			// from using a wrong password to DoS an online user by kicking them.
+			if results["kickuser"] == "y" {
+
+				connDetails = connections.Get(clientInput.ConnectionId)
+
+				// Disconnect/kick the user currently connected
+				userid := users.FindUserId(results["username"])
+				user := users.GetByUserId(userid)
+
+				if user != nil {
+					existingConnectionId := user.ConnectionId()
+
+					// Send a goodbye message to the currently connected user
+					tplTxt, _ := templates.Process("goodbye", nil)
+					connections.SendTo([]byte(templates.AnsiParse(tplTxt)), existingConnectionId)
+
+					users.SetZombieUser(userid)
+					connections.Kick(existingConnectionId, fmt.Sprintf(`Duplicate login (ip: %s)`, connDetails.RemoteAddr()))
+				}
+
 			}
 
 			loggedInUser, msg, err := users.LoginUser(tmpUser, clientInput.ConnectionId)
@@ -221,13 +235,14 @@ func GetLoginPromptHandler() connections.InputHandler {
 				if results["username"] == `new` {
 					return false
 				}
-
+				// Only show the kickuser prompt if the target user is currently online.
+				// Do NOT check the password here — that is done in FinalizeLoginOrCreate
+				// under the rate limiter. Checking it here would allow unlimited password
+				// guesses against any online user, bypassing the rate limit.
 				userid := users.FindUserId(results["username"])
-
 				user := users.GetByUserId(userid)
-
-				return user != nil && user.PasswordMatches(results["password"])
-			}, // Only run if username was not "new", password matches, and user is currently online.
+				return user != nil && user.ConnectionId() != 0
+			}, // Only run if username was not "new" and user is currently online.
 		},
 		//////////////////////////////////////////////////
 		// End If NOT a new user signup (Just a login)
@@ -310,6 +325,32 @@ func GetLoginPromptHandler() connections.InputHandler {
 		//////////////////////////////////////////////////
 	}
 
-	// Create and return the handler using the generic factory function
-	return CreatePromptHandler(loginSteps, FinalizeLoginOrCreate)
+	// Create and return the handler wrapped with an entry-level rate-limit gate.
+	// wrapWithRateLimit ensures no login step (including kickuser Condition
+	// closures) executes for an IP that is already blocked, closing the bypass
+	// where PasswordMatches could be called an unlimited number of times before
+	// FinalizeLoginOrCreate ever runs.
+	return wrapWithRateLimit(CreatePromptHandler(loginSteps, FinalizeLoginOrCreate))
+}
+
+// wrapWithRateLimit prevents a rate-limited IP from exercising any login step.
+// The check runs only on Enter presses (the submission event) to avoid the
+// overhead of a lock acquisition on every keystroke.
+//
+// This closes the bypass where the kickuser Condition closure called
+// PasswordMatches without consulting the rate limiter.
+func wrapWithRateLimit(inner connections.InputHandler) connections.InputHandler {
+	return func(clientInput *connections.ClientInput, sharedState map[string]any) bool {
+		if clientInput.EnterPressed {
+			connDetails := connections.Get(clientInput.ConnectionId)
+			ip := extractIP(connDetails)
+			if defaultRateLimiter.IsBlocked(ip) {
+				connections.SendTo([]byte("Too many failed attempts. Please try again later."), clientInput.ConnectionId)
+				connections.SendTo(term.CRLF, clientInput.ConnectionId)
+				connections.Remove(clientInput.ConnectionId)
+				return false
+			}
+		}
+		return inner(clientInput, sharedState)
+	}
 }
