@@ -297,7 +297,7 @@ func (s *sqliteStore) commitBatch(batch map[opKey]writeOp) {
 					last_login = excluded.last_login,
 					email      = excluded.email,
 					data       = excluded.data
-			`, u.UserId, u.Username, u.Password, u.Role, u.Joined.Unix(), u.LastLogin.Unix(), u.Email, u.JSONBlob)
+			`, u.UserId, u.Username, u.Password, u.Role, u.Joined.Unix(), u.LastLogin.Unix(), u.Email, u.Payload)
 		case opUserDelete:
 			_, err = tx.ExecContext(ctx, `DELETE FROM users WHERE user_id = ?`, op.key.id)
 		case opRoomSave:
@@ -309,7 +309,7 @@ func (s *sqliteStore) commitBatch(batch map[opKey]writeOp) {
 					zone       = excluded.zone,
 					data       = excluded.data,
 					updated_at = excluded.updated_at
-			`, r.RoomId, r.Zone, r.JSONBlob, r.UpdatedAt.UnixNano())
+			`, r.RoomId, r.Zone, r.Payload, r.UpdatedAt.UnixNano())
 		case opRoomDelete:
 			_, err = tx.ExecContext(ctx, `DELETE FROM room_instances WHERE room_id = ?`, op.key.id)
 		}
@@ -369,7 +369,7 @@ func (s *sqliteStore) LoadUserByUsername(username string) (*UserData, error) {
 func scanUser(row *sql.Row) (*UserData, error) {
 	var u UserData
 	var joinedUnix, lastLoginUnix int64
-	err := row.Scan(&u.UserId, &u.Username, &u.Password, &u.Role, &joinedUnix, &lastLoginUnix, &u.Email, &u.JSONBlob)
+	err := row.Scan(&u.UserId, &u.Username, &u.Password, &u.Role, &joinedUnix, &lastLoginUnix, &u.Email, &u.Payload)
 	if err == sql.ErrNoRows {
 		return nil, ErrNotFound
 	}
@@ -457,7 +457,7 @@ func (s *sqliteStore) LoadRoomInstance(roomId int) (*RoomInstanceData, error) {
 	err := s.db.QueryRow(`
 		SELECT room_id, zone, data, updated_at
 		FROM room_instances WHERE room_id = ?
-	`, roomId).Scan(&r.RoomId, &r.Zone, &r.JSONBlob, &updatedNano)
+	`, roomId).Scan(&r.RoomId, &r.Zone, &r.Payload, &updatedNano)
 	if err == sql.ErrNoRows {
 		return nil, ErrNotFound
 	}

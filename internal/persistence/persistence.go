@@ -24,7 +24,7 @@ import (
 // before handing it to the store, and unmarshals back on load.
 //
 // Password must be a bcrypt hash — the store does not re-hash.
-// JSONBlob carries the variable-shape payload (character, inventory,
+// Payload carries the variable-shape payload (character, inventory,
 // buffs, stats, quest progress, etc.) as serialized JSON.
 type UserData struct {
 	UserId    int
@@ -34,7 +34,7 @@ type UserData struct {
 	Joined    time.Time
 	LastLogin time.Time
 	Email     string
-	JSONBlob  []byte
+	Payload   []byte
 }
 
 // RoomInstanceData is the persistence-layer representation of a room
@@ -46,7 +46,7 @@ type UserData struct {
 type RoomInstanceData struct {
 	RoomId    int
 	Zone      string
-	JSONBlob  []byte
+	Payload   []byte
 	UpdatedAt time.Time
 }
 

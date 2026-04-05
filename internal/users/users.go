@@ -3,10 +3,7 @@ package users
 import (
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -16,10 +13,8 @@ import (
 	"github.com/GoMudEngine/GoMud/internal/connections"
 	"github.com/GoMudEngine/GoMud/internal/mobs"
 	"github.com/GoMudEngine/GoMud/internal/mudlog"
+	"github.com/GoMudEngine/GoMud/internal/persistence"
 	"github.com/GoMudEngine/GoMud/internal/util"
-
-	//
-	"gopkg.in/yaml.v2"
 )
 
 var (
@@ -289,8 +284,13 @@ func SetZombieUser(userId int) {
 
 }
 
+// SaveAllUsers enqueues a write for every currently active user. Writes
+// are asynchronous — the background store worker commits them in batches.
+// Call persistence.Store.Flush() (via GetStore().Flush()) if you need
+// read-after-write consistency.
 func SaveAllUsers(isAutoSave ...bool) {
-	// Snapshot user records under read lock so we don't hold mu across disk I/O.
+	// Snapshot user records under read lock so we don't hold mu across
+	// the (short) serialization path.
 	userManager.mu.RLock()
 	snapshot := make([]UserRecord, 0, len(userManager.Users))
 	for _, u := range userManager.Users {
@@ -303,7 +303,6 @@ func SaveAllUsers(isAutoSave ...bool) {
 			mudlog.Error("SaveAllUsers()", "error", err.Error())
 		}
 	}
-
 }
 
 func LogOutUserByConnectionId(connectionId connections.ConnectionId) error {
@@ -339,21 +338,22 @@ func LogOutUserByConnectionId(connectionId connections.ConnectionId) error {
 	return nil
 }
 
-// First time creating a user.
+// CreateUser registers a brand-new user in the persistence store and
+// adds them to the in-memory active user map. The caller must have
+// already set the Password (via SetPassword, which hashes with bcrypt).
 func CreateUser(u *UserRecord) error {
 
 	if err := ValidateName(u.Username); err != nil {
 		return errors.New("that username is not allowed: " + err.Error())
 	}
 
-	// GetUniqueUserId calls GetAllActiveUsers which acquires RLock — call before Lock.
+	// GetUniqueUserId reads from the store — call before acquiring mu.
 	u.UserId = GetUniqueUserId()
 	u.Role = RoleUser
 
-	idx := NewUserIndex()
-	idx.AddUser(u.UserId, u.Username)
-
-	// SaveUser is disk I/O — do it before acquiring mu.
+	// Persist first so a crash before the in-memory insert doesn't leave
+	// a user dangling in RAM without durability. SaveUser is async; the
+	// write enqueues and commits within the next batch window.
 	if err := SaveUser(*u); err != nil {
 		return err
 	}
@@ -368,29 +368,27 @@ func CreateUser(u *UserRecord) error {
 	return nil
 }
 
+// LoadUser loads a user from the persistence store by username
+// (case-insensitive). Returns an error if the store is not initialized
+// or the user doesn't exist.
 func LoadUser(username string, skipValidation ...bool) (*UserRecord, error) {
-
-	idx := NewUserIndex()
-	userId, found := idx.FindByUsername(username)
-
-	if !found {
-		return nil, errors.New("user doesn't exist")
-	}
-
-	userFilePath := util.FilePath(string(configs.GetFilePathsConfig().DataFiles), `/`, `users`, `/`, strconv.Itoa(int(userId))+`.yaml`)
-
-	userFileTxt, err := os.ReadFile(userFilePath)
-	if err != nil {
+	if err := requireStore(); err != nil {
 		return nil, err
 	}
 
-	loadedUser := &UserRecord{}
-	if err := yaml.Unmarshal([]byte(userFileTxt), loadedUser); err != nil {
+	data, err := store.LoadUserByUsername(username)
+	if err != nil {
+		if errors.Is(err, persistence.ErrNotFound) {
+			return nil, errors.New("user doesn't exist")
+		}
+		return nil, fmt.Errorf("LoadUser: %w", err)
+	}
+
+	loadedUser, err := dataToUserRecord(data)
+	if err != nil {
 		mudlog.Error("LoadUser", "error", err.Error())
 		return nil, fmt.Errorf("LoadUser unmarshal: %w", err)
 	}
-	// unsent is a pointer field skipped by YAML — initialize it after unmarshal.
-	loadedUser.unsent = &unsentState{}
 
 	if len(skipValidation) == 0 || !skipValidation[0] {
 		if err := loadedUser.Character.Validate(true); err == nil {
@@ -408,56 +406,48 @@ func LoadUser(username string, skipValidation ...bool) (*UserRecord, error) {
 	return loadedUser, nil
 }
 
-// Loads all user recvords and runs against a function.
-// Stops searching if false is returned.
+// SearchOfflineUsers iterates every user in the persistence store that
+// is NOT currently active (logged in) and invokes searchFunc on each.
+// Stops early if searchFunc returns false.
 func SearchOfflineUsers(searchFunc func(u *UserRecord) bool) {
+	if err := requireStore(); err != nil {
+		mudlog.Error("SearchOfflineUsers", "error", err.Error())
+		return
+	}
 
-	basePath := util.FilePath(string(configs.GetFilePathsConfig().DataFiles), `/`, `users`)
+	// Snapshot online usernames so we can filter quickly without
+	// holding userManager.mu during the iteration.
+	userManager.mu.RLock()
+	online := make(map[string]struct{}, len(userManager.Usernames))
+	for name := range userManager.Usernames {
+		online[strings.ToLower(name)] = struct{}{}
+	}
+	userManager.mu.RUnlock()
 
-	filepath.Walk(basePath, func(path string, info os.FileInfo, err error) error {
+	names, err := store.AllUsernames()
+	if err != nil {
+		mudlog.Error("SearchOfflineUsers: AllUsernames", "error", err.Error())
+		return
+	}
 
+	for _, name := range names {
+		if _, isOnline := online[strings.ToLower(name)]; isOnline {
+			continue
+		}
+		data, err := store.LoadUserByUsername(name)
 		if err != nil {
-			return err
+			mudlog.Error("SearchOfflineUsers: LoadUserByUsername", "name", name, "error", err.Error())
+			continue
 		}
-
-		if info.IsDir() {
-			return nil
+		u, err := dataToUserRecord(data)
+		if err != nil {
+			mudlog.Error("SearchOfflineUsers: unmarshal", "name", name, "error", err.Error())
+			continue
 		}
-
-		if len(path) > 10 && path[len(path)-10:] == `.alts.yaml` {
-			return nil
+		if !searchFunc(u) {
+			return
 		}
-
-		var uRecord UserRecord
-
-		fpathLower := path[len(path)-5:] // Only need to compare the last 5 characters
-		if fpathLower == `.yaml` {
-
-			bytes, err := os.ReadFile(path)
-			if err != nil {
-				return err
-			}
-
-			err = yaml.Unmarshal(bytes, &uRecord)
-			if err != nil {
-				return err
-			}
-
-			// If this is an online user, skip it
-			userManager.mu.RLock()
-			_, isOnline := userManager.Usernames[uRecord.Username]
-			userManager.mu.RUnlock()
-			if isOnline {
-				return nil
-			}
-
-			if res := searchFunc(&uRecord); !res {
-				return errors.New(`done searching`)
-			}
-		}
-		return nil
-	})
-
+	}
 }
 
 func ValidateName(name string) error {
@@ -533,109 +523,95 @@ func CharacterNameSearch(nameToFind string) (foundUserId int, foundUserName stri
 	return foundUserId, foundUserName
 }
 
+// SaveUser enqueues a write for the user in the persistence store.
+// The write is asynchronous — the background worker commits it in the
+// next batch. Use GetStore().Flush() to wait for pending writes, or
+// rely on graceful shutdown to flush everything via Close().
+//
+// The isAutoSave variadic is accepted for backward compatibility with
+// existing call sites and has no effect on the store backend (the
+// worker handles batching regardless of call origin).
 func SaveUser(u UserRecord, isAutoSave ...bool) error {
-
-	fileWritten := false
-	tmpSaved := false
-	tmpCopied := false
-	completed := false
-
-	defer func() {
-		mudlog.Info("SaveUser()", "username", u.Username, "wrote-file", fileWritten, "tmp-file", tmpSaved, "tmp-copied", tmpCopied, "completed", completed)
-	}()
-
-	data, err := yaml.Marshal(&u)
-	if err != nil {
+	if err := requireStore(); err != nil {
 		return err
 	}
 
-	carefulSave := configs.GetFilePathsConfig().CarefulSaveFiles
-
-	path := util.FilePath(string(configs.GetFilePathsConfig().DataFiles), `/`, `users`, `/`, strconv.Itoa(u.UserId)+`.yaml`)
-
-	saveFilePath := path
-	if carefulSave { // careful save first saves a {filename}.new file
-		saveFilePath += `.new`
-	}
-
-	err = os.WriteFile(saveFilePath, data, 0600)
+	data, err := userRecordToData(&u)
 	if err != nil {
-		return err
-	}
-	fileWritten = true
-	if carefulSave {
-		tmpSaved = true
+		return fmt.Errorf("SaveUser: %w", err)
 	}
 
-	if carefulSave {
-		//
-		// Once the file is written, rename it to remove the .new suffix and overwrite the old file
-		//
-		if err := os.Rename(saveFilePath, path); err != nil {
-			return err
-		}
-		tmpCopied = true
-	}
-
-	completed = true
-
-	return nil
+	return store.SaveUser(data)
 }
 
+// GetUniqueUserId returns the next available user id by scanning both
+// the in-memory active user map and the persistence store.
 func GetUniqueUserId() int {
-
-	// if highestUserId is zero, loop through users and get real highest.
-
 	highestUserId := 0
 
-	idx := NewUserIndex()
-	if idx.Exists() {
-
-		highestUserId = idx.GetHighestUserId()
-
-	} else {
-
-		// Check all user id's of offline users
-		SearchOfflineUsers(func(u *UserRecord) bool {
-
-			if u.UserId > highestUserId {
-				highestUserId = u.UserId
+	if err := requireStore(); err == nil {
+		if ids, err := store.AllUserIds(); err == nil {
+			for _, id := range ids {
+				if id > highestUserId {
+					highestUserId = id
+				}
 			}
-
-			return true
-		})
-
-		// Check all user id's of online users
-		for _, u := range GetAllActiveUsers() {
-			if u.UserId > highestUserId {
-				highestUserId = u.UserId
-			}
+		} else {
+			mudlog.Error("GetUniqueUserId: AllUserIds", "error", err.Error())
 		}
-
 	}
 
-	// Increment the highestUserId before returning a new one
-	highestUserId += 1
-
-	return highestUserId
-}
-
-func Exists(name string) bool {
-
+	// Also check online users in case there's a newly-created user
+	// whose store write is still in flight.
 	for _, u := range GetAllActiveUsers() {
-		if strings.ToLower(u.Username) == strings.ToLower(name) {
+		if u.UserId > highestUserId {
+			highestUserId = u.UserId
+		}
+	}
+
+	return highestUserId + 1
+}
+
+// Exists returns true if a user with the given name is registered,
+// either actively online or stored in the persistence store.
+func Exists(name string) bool {
+	for _, u := range GetAllActiveUsers() {
+		if strings.EqualFold(u.Username, name) {
 			return true
 		}
 	}
 
-	idx := NewUserIndex()
-	_, found := idx.FindByUsername(name)
+	if err := requireStore(); err != nil {
+		mudlog.Error("Exists: store not initialized", "error", err.Error())
+		return false
+	}
 
-	return found
+	exists, err := store.UserExists(name)
+	if err != nil {
+		mudlog.Error("Exists: store query", "error", err.Error())
+		return false
+	}
+	return exists
 }
 
+// FindUserId returns the user id for a given username, or 0 if the
+// user doesn't exist.
 func FindUserId(username string) int {
-	idx := NewUserIndex()
-	userid, _ := idx.FindByUsername(username)
-	return int(userid)
+	// Check active users first — avoids a store round-trip for the
+	// common case (user is already logged in).
+	for _, u := range GetAllActiveUsers() {
+		if strings.EqualFold(u.Username, username) {
+			return u.UserId
+		}
+	}
+
+	if err := requireStore(); err != nil {
+		return 0
+	}
+
+	data, err := store.LoadUserByUsername(username)
+	if err != nil {
+		return 0
+	}
+	return data.UserId
 }

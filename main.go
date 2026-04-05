@@ -231,15 +231,10 @@ func main() {
 
 	mudlog.Info(`========================`)
 
-	// Create the user index
-	idx := users.NewUserIndex()
-	if !idx.Exists() {
-		// Since it doesn't exist yet, that's a good indication we should do a quick format migration check
-		users.DoUserMigrations()
-	}
-	idx.Create()
-	idx.Rebuild()
-	mudlog.Info("UserIndex", "info", "User index recreated.")
+	// The legacy file-based user index is no longer needed — SQLite
+	// provides indexed username lookups natively. The persistence store
+	// is initialized further down in the startup sequence (Stage 3
+	// of the Phase 4 migration wires --init-db and users.SetStore).
 
 	// Load the round count from the file
 	if util.LoadRoundCount(c.FilePaths.DataFiles.String()+`/`+util.RoundCountFilename) == util.RoundCountMinimum {

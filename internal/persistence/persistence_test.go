@@ -74,7 +74,7 @@ func makeUser(id int, username string) *UserData {
 		Joined:    time.Unix(1700000000, 0),
 		LastLogin: time.Unix(1700100000, 0),
 		Email:     fmt.Sprintf("%s@example.test", strings.ToLower(username)),
-		JSONBlob:  []byte(`{"character":{"name":"` + username + `"},"inventory":[]}`),
+		Payload:   []byte(`{"character":{"name":"` + username + `"},"inventory":[]}`),
 	}
 }
 
@@ -82,7 +82,7 @@ func makeRoom(id int, zone string) *RoomInstanceData {
 	return &RoomInstanceData{
 		RoomId:    id,
 		Zone:      zone,
-		JSONBlob:  []byte(fmt.Sprintf(`{"floorGold":%d,"items":[]}`, id*10)),
+		Payload:   []byte(fmt.Sprintf(`{"floorGold":%d,"items":[]}`, id*10)),
 		UpdatedAt: time.Unix(1700000000, 0),
 	}
 }
@@ -162,7 +162,7 @@ func TestSaveUser_RoundTrip(t *testing.T) {
 	assert.Equal(t, u.Email, loaded.Email)
 	assert.Equal(t, u.Joined.Unix(), loaded.Joined.Unix())
 	assert.Equal(t, u.LastLogin.Unix(), loaded.LastLogin.Unix())
-	assert.Equal(t, string(u.JSONBlob), string(loaded.JSONBlob))
+	assert.Equal(t, string(u.Payload), string(loaded.Payload))
 }
 
 func TestSaveUser_Coalescing(t *testing.T) {
@@ -173,7 +173,7 @@ func TestSaveUser_Coalescing(t *testing.T) {
 	// a single batch and coalesce to one write.
 	u := makeUser(1, "Alice")
 	for i := 0; i < 100; i++ {
-		u.JSONBlob = []byte(fmt.Sprintf(`{"iter":%d}`, i))
+		u.Payload = []byte(fmt.Sprintf(`{"iter":%d}`, i))
 		require.NoError(t, s.SaveUser(u))
 	}
 	require.NoError(t, s.Flush())
@@ -186,7 +186,7 @@ func TestSaveUser_Coalescing(t *testing.T) {
 	// Verify final state is the last write.
 	loaded, err := s.LoadUser(1)
 	require.NoError(t, err)
-	assert.Equal(t, `{"iter":99}`, string(loaded.JSONBlob))
+	assert.Equal(t, `{"iter":99}`, string(loaded.Payload))
 }
 
 func TestSaveUser_Flush(t *testing.T) {
@@ -305,7 +305,7 @@ func TestSaveRoomInstance_RoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, r.RoomId, loaded.RoomId)
 	assert.Equal(t, r.Zone, loaded.Zone)
-	assert.Equal(t, string(r.JSONBlob), string(loaded.JSONBlob))
+	assert.Equal(t, string(r.Payload), string(loaded.Payload))
 	assert.Equal(t, r.UpdatedAt.UnixNano(), loaded.UpdatedAt.UnixNano())
 }
 

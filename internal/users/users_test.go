@@ -1,14 +1,13 @@
 package users
 
 import (
-	"fmt"
 	"os"
-	"path/filepath"
 	"testing"
+	"time"
 
-	"github.com/GoMudEngine/GoMud/internal/configs"
 	"github.com/GoMudEngine/GoMud/internal/connections"
 	"github.com/GoMudEngine/GoMud/internal/mudlog"
+	"github.com/GoMudEngine/GoMud/internal/persistence"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -82,62 +81,47 @@ func TestLogOutUserByConnectionId_ValidUser_CleansUpMaps(t *testing.T) {
 	assert.Zero(t, userManager.UserConnections[userId])
 }
 
-// TestLoadUser_MalformedYAML_ReturnsError verifies the fix for issue #27:
-// LoadUser must return (nil, error) when yaml.Unmarshal fails, rather than
-// returning a blank UserRecord that could silently overwrite valid on-disk data.
+// TestLoadUser_MalformedPayload_ReturnsError verifies that LoadUser returns
+// (nil, error) when the persistence store returns a row whose Payload bytes
+// cannot be unmarshaled into a UserRecord. This was originally issue #27,
+// which tested the old YAML-file path; after the SQLite persistence
+// migration, the same guarantee must hold for corrupted payload blobs.
 //
-// Setup:
-//  1. Redirect the DataFiles config path to a temp directory.
-//  2. Create a users/ subdirectory and write a corrupted YAML file for userId 999.
-//  3. Create a user index that maps "testbaduser" → 999.
-//  4. Call LoadUser("testbaduser") and assert: err != nil, returned *UserRecord is nil.
-func TestLoadUser_MalformedYAML_ReturnsError(t *testing.T) {
-	// Not parallel — mutates the global configs.DataFiles path.
+// A blank UserRecord silently returned from LoadUser could be passed to
+// SaveUser later and overwrite a valid stored payload — silent data loss.
+func TestLoadUser_MalformedPayload_ReturnsError(t *testing.T) {
+	// Install an in-memory persistence store for the duration of this test.
+	s, err := persistence.Open("file::memory:?cache=shared")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = s.Close() })
 
-	const (
-		testUserId   = 999
-		testUsername = "testbaduser"
-	)
+	SetStore(s)
+	t.Cleanup(func() { SetStore(nil) })
 
-	// 1. Set up temp directory and point configs at it.
-	tmp := t.TempDir()
-	configs.SetTestDataFilesPath(tmp)
-	t.Cleanup(func() {
-		// Reset to an empty path so subsequent tests aren't affected.
-		configs.SetTestDataFilesPath("")
+	const testUsername = "testbaduser"
+
+	// Insert a user with a malformed YAML payload. The persistence store
+	// does not validate the payload contents — it just stores bytes —
+	// so this is a valid way to simulate corrupted on-disk data.
+	err = s.SaveUser(&persistence.UserData{
+		UserId:   999,
+		Username: testUsername,
+		Password: "$2a$10$notahash",
+		Role:     "user",
+		Joined:   time.Unix(1700000000, 0),
+		Payload:  []byte("invalid: [yaml: content:\n  - broken\n  indentation: here"),
 	})
+	require.NoError(t, err, "enqueue malformed user")
+	require.NoError(t, s.Flush(), "flush malformed user to disk")
 
-	// 2. Create the users/ subdirectory.
-	usersDir := filepath.Join(tmp, "users")
-	require.NoError(t, os.MkdirAll(usersDir, 0755))
-
-	// 3. Write a malformed YAML file — valid enough to be parsed by os.ReadFile
-	//    but invalid YAML so yaml.Unmarshal rejects it.
-	malformedYAML := "invalid: [yaml: content:\n  - broken\n  indentation: here"
-	userFile := filepath.Join(usersDir, fmt.Sprintf("%d.yaml", testUserId))
-	require.NoError(t, os.WriteFile(userFile, []byte(malformedYAML), 0644))
-
-	// 4. Create the user index and register testbaduser → 999.
-	//    NewUserIndex reads DataFiles from configs, so this must happen after
-	//    SetTestDataFilesPath above.
-	idx := NewUserIndex()
-	require.NoError(t, idx.Create(), "failed to create user index file")
-	require.NoError(t, idx.AddUser(testUserId, testUsername), "failed to add user to index")
-
-	// Verify the index round-trips correctly so we know the test isn't vacuously
-	// passing because FindByUsername returns (0, false).
-	foundId, found := idx.FindByUsername(testUsername)
-	require.True(t, found, "index must find the user we just registered")
-	require.Equal(t, int64(testUserId), foundId, "index must return the correct userId")
-
-	// 5. Call LoadUser with skipValidation=true to avoid hitting Character.Validate
-	//    (loadedUser.Character would be nil for a blank UserRecord).
+	// LoadUser must return an error and nil *UserRecord, not a blank
+	// record that a later SaveUser would use to overwrite the stored
+	// bytes with an empty struct.
 	u, err := LoadUser(testUsername, true)
 
-	// The fix: must return an error and nil UserRecord on unmarshal failure.
-	require.Error(t, err, "LoadUser must return an error when YAML is malformed")
-	assert.Nil(t, u, "LoadUser must return nil *UserRecord when YAML is malformed — "+
+	require.Error(t, err, "LoadUser must return an error when payload is malformed")
+	assert.Nil(t, u, "LoadUser must return nil *UserRecord when payload is malformed — "+
 		"returning a blank record could silently overwrite valid data on SaveUser")
-	assert.Contains(t, err.Error(), "LoadUser unmarshal",
-		"error must be wrapped with the LoadUser unmarshal context")
+	assert.Contains(t, err.Error(), "unmarshal",
+		"error must mention the unmarshal failure context")
 }
