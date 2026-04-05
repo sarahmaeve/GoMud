@@ -22,3 +22,12 @@ func SetTestDataFilesPath(path string) {
 	defer configDataLock.Unlock()
 	configData.FilePaths.DataFiles = ConfigString(path)
 }
+
+// SetTestNetwork sets the network config directly.
+// For testing only.
+func SetTestNetwork(n Network) {
+	configDataLock.Lock()
+	defer configDataLock.Unlock()
+	configData.Network = n
+	configData.validated = true
+}

@@ -12,6 +12,11 @@ type Network struct {
 	TimeoutMods          ConfigBool        `yaml:"TimeoutMods"`          // Whether to kick admin/mods when idle too long.
 	ZombieSeconds        ConfigInt         `yaml:"ZombieSeconds"`        // How many seconds a player will be a zombie allowing them to reconnect.
 	LogoutRounds         ConfigInt         `yaml:"LogoutRounds"`         // How many rounds of uninterrupted meditation must be completed to log out.
+	// AllowedWebOrigins is a comma-separated list of additional origins (host:port or host)
+	// permitted to open WebSocket connections. Localhost variants and the request's own
+	// Host header are always allowed regardless of this setting.
+	// Example: "mymud.example.com,mymud.example.com:8080"
+	AllowedWebOrigins ConfigString `yaml:"AllowedWebOrigins"`
 }
 
 func (n *Network) Validate() {

@@ -3,6 +3,7 @@ package main
 
 import (
 	"fmt"
+	"log/slog"
 	"net"
 	"os"
 	"os/signal"
@@ -76,6 +77,23 @@ var (
 	// Start a pool of worker goroutines
 	wg sync.WaitGroup
 )
+
+// recoverConnection recovers from a panic inside a connection handler goroutine.
+// It logs the panic with a full stack trace and removes the connection from the
+// active-connection pool so the rest of the server stays alive.
+// Usage: defer recoverConnection(connId)
+func recoverConnection(connId connections.ConnectionId) {
+	if r := recover(); r != nil {
+		// Use slog directly so this always works even if mudlog is not yet
+		// initialized (e.g. very early startup). The stack trace is emitted as
+		// a single attribute to keep structured log parsers happy.
+		slog.Error("connection handler panic",
+			"connectionId", connId,
+			"panic", fmt.Sprintf("%v", r),
+			"stack", string(debug.Stack()))
+		connections.Remove(connId)
+	}
+}
 
 func main() {
 
@@ -338,6 +356,7 @@ func handleTelnetConnection(connDetails *connections.ConnectionDetails, wg *sync
 	defer func() {
 		wg.Done()
 	}()
+	defer recoverConnection(connDetails.ConnectionId())
 
 	mudlog.Info("New Connection", "connectionID", connDetails.ConnectionId(), "remoteAddr", connDetails.RemoteAddr().String())
 
@@ -703,8 +722,10 @@ func handleTelnetConnection(connDetails *connections.ConnectionDetails, wg *sync
 
 func HandleWebSocketConnection(conn *websocket.Conn) {
 
-	var userObject *users.UserRecord
 	connDetails := connections.Add(nil, conn)
+	defer recoverConnection(connDetails.ConnectionId())
+
+	var userObject *users.UserRecord
 
 	// Setup shared state map for this connection's handlers
 	// Needs to be created BEFORE the first handler call

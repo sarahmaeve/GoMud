@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"html"
 	"strings"
-	"text/template"
+	"html/template"
 
 	"github.com/GoMudEngine/GoMud/internal/configs"
 )
