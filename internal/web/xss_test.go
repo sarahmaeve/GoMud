@@ -1,59 +1,76 @@
 package web
 
-// TestXSSEscaping verifies that the web package uses html/template, which
-// auto-escapes user-controlled data before writing it into HTML output.
-// If this file is accidentally changed to import "text/template", the test
-// will fail because text/template does NOT escape HTML special characters.
+// These tests verify that the web package uses html/template (which
+// auto-escapes user-controlled data) rather than text/template (which
+// does not). They work by scanning the actual source files in this
+// package for the forbidden import — this is a direct regression guard
+// that fails if any web package file switches back to text/template.
 
 import (
-	"bytes"
-	"html/template"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
 
-func TestXSSEscaping(t *testing.T) {
-	t.Parallel()
-
-	tmpl, err := template.New("test").Parse("<p>{{.}}</p>")
+// TestWebPackageUsesHtmlTemplate scans every non-test .go file in the web
+// package and verifies it does NOT import "text/template". This is the
+// actual XSS regression guard.
+func TestWebPackageUsesHtmlTemplate(t *testing.T) {
+	entries, err := os.ReadDir(".")
 	require.NoError(t, err)
 
-	var buf bytes.Buffer
-	err = tmpl.Execute(&buf, "<script>alert(1)</script>")
-	require.NoError(t, err)
+	var scanned int
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() {
+			continue
+		}
+		if !strings.HasSuffix(name, ".go") {
+			continue
+		}
+		if strings.HasSuffix(name, "_test.go") {
+			continue
+		}
 
-	output := buf.String()
-	// html/template escapes < and > to &lt; and &gt;
-	require.NotContains(t, output, "<script>", "html/template should escape raw <script> tags")
-	require.Contains(t, output, "&lt;script&gt;", "output should contain HTML-escaped content")
+		path := filepath.Join(".", name)
+		data, err := os.ReadFile(path)
+		require.NoError(t, err, "reading %s", path)
+
+		content := string(data)
+		require.NotContains(t, content, `"text/template"`,
+			"%s imports text/template — this is an XSS vulnerability. Use html/template instead.", name)
+
+		// We also want at least SOME file in the package to import html/template,
+		// otherwise the package isn't using templates at all and the guard is meaningless.
+		scanned++
+	}
+
+	require.Greater(t, scanned, 0, "no .go source files found in web package")
 }
 
-func TestXSSEscapingAttributes(t *testing.T) {
-	t.Parallel()
-
-	tmpl, err := template.New("test").Parse(`<input value="{{.}}">`)
+// TestWebPackageImportsHtmlTemplate verifies at least one source file
+// actually imports html/template, ensuring the regression guard above
+// has something to guard against.
+func TestWebPackageImportsHtmlTemplate(t *testing.T) {
+	entries, err := os.ReadDir(".")
 	require.NoError(t, err)
 
-	var buf bytes.Buffer
-	err = tmpl.Execute(&buf, `"><script>alert(1)</script>`)
-	require.NoError(t, err)
+	var foundHtmlTemplate bool
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(".", name))
+		require.NoError(t, err)
+		if strings.Contains(string(data), `"html/template"`) {
+			foundHtmlTemplate = true
+			break
+		}
+	}
 
-	output := buf.String()
-	require.NotContains(t, output, "<script>", "html/template should escape attribute injection attempts")
-}
-
-func TestXSSEscapingAmpersand(t *testing.T) {
-	t.Parallel()
-
-	tmpl, err := template.New("test").Parse("<p>{{.}}</p>")
-	require.NoError(t, err)
-
-	var buf bytes.Buffer
-	err = tmpl.Execute(&buf, "bread & butter")
-	require.NoError(t, err)
-
-	output := buf.String()
-	require.Contains(t, output, "&amp;", "html/template should escape & to &amp;")
-	require.NotContains(t, output, " & ", "unescaped ampersand should not appear in output")
+	require.True(t, foundHtmlTemplate, "no web package file imports html/template")
 }
