@@ -85,7 +85,14 @@ func FinalizeLoginOrCreate(results map[string]string, sharedState map[string]any
 					connections.SendTo([]byte(templates.AnsiParse(tplTxt)), existingConnectionId)
 
 					users.SetZombieUser(userid)
-					connections.Kick(existingConnectionId, fmt.Sprintf(`Duplicate login (ip: %s)`, connDetails.RemoteAddr()))
+					// connDetails may be nil if the incoming connection was removed
+					// concurrently between FinalizeLoginOrCreate entry and this point.
+					// extractIP already handles nil connDetails; mirror that safety here.
+					kickReason := `Duplicate login`
+					if connDetails != nil {
+						kickReason = fmt.Sprintf(`Duplicate login (ip: %s)`, connDetails.RemoteAddr())
+					}
+					connections.Kick(existingConnectionId, kickReason)
 				}
 
 			}

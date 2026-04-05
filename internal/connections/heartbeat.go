@@ -31,6 +31,7 @@ type heartbeatManager struct {
 	config   HeartbeatConfig
 	stopChan chan struct{}
 	wg       sync.WaitGroup
+	stopOnce sync.Once
 }
 
 func newHeartbeatManager(cd *ConnectionDetails, config HeartbeatConfig) *heartbeatManager {
@@ -104,6 +105,12 @@ func (hm *heartbeatManager) writePing() error {
 }
 
 func (hm *heartbeatManager) stop() {
-	close(hm.stopChan)
+	// stopOnce ensures close(hm.stopChan) is called exactly once.  Without this
+	// guard, a second call to stop() would panic with "close of closed channel".
+	// hm.wg.Wait() is outside the Once so that concurrent callers still block
+	// until the ping goroutine has fully exited before returning.
+	hm.stopOnce.Do(func() {
+		close(hm.stopChan)
+	})
 	hm.wg.Wait()
 }
