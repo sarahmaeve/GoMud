@@ -393,11 +393,9 @@ func (p *Plugin) ReadIntoStruct(identifier string, out any) error {
 	if err != nil {
 		return err
 	}
-
-	if err = yaml.Unmarshal(b, out); err == nil {
+	if err := yaml.Unmarshal(b, out); err != nil {
 		return err
 	}
-
 	return nil
 }
 

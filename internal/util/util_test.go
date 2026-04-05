@@ -81,7 +81,7 @@ func TestRoundCount(t *testing.T) {
 func TestTurnCount(t *testing.T) {
 	// turnCount is also a global variable.
 	// For test isolation, zero it out or set to a known value.
-	turnCount = 0
+	turnCount.Store(0)
 
 	if GetTurnCount() != 0 {
 		t.Fatalf("Expected turnCount to be 0, got %d", GetTurnCount())
@@ -94,6 +94,31 @@ func TestTurnCount(t *testing.T) {
 
 	if GetTurnCount() != 1 {
 		t.Fatalf("Expected turnCount to be 1, got %d", GetTurnCount())
+	}
+}
+
+func TestTurnCount_ConcurrentAccess(t *testing.T) {
+	// Reset to a known baseline before spawning goroutines.
+	turnCount.Store(0)
+	initial := GetTurnCount()
+
+	const goroutines = 100
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+
+	for i := 0; i < goroutines; i++ {
+		go func() {
+			defer wg.Done()
+			IncrementTurnCount()
+		}()
+	}
+
+	wg.Wait()
+
+	got := GetTurnCount()
+	want := initial + goroutines
+	if got != want {
+		t.Fatalf("after %d concurrent increments: GetTurnCount() = %d, want %d", goroutines, got, want)
 	}
 }
 

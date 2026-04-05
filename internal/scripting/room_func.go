@@ -135,10 +135,14 @@ func (r ScriptRoom) GetPlayers() []*ScriptActor {
 func (r ScriptRoom) GetAllActors() []*ScriptActor {
 	actorList := []*ScriptActor{}
 	for _, mobInstanceId := range r.roomRecord.GetMobs() {
-		actorList = append(actorList, GetActor(0, mobInstanceId))
+		if a := GetActor(0, mobInstanceId); a != nil {
+			actorList = append(actorList, a)
+		}
 	}
 	for _, userId := range r.roomRecord.GetPlayers() {
-		actorList = append(actorList, GetActor(userId, 0))
+		if a := GetActor(userId, 0); a != nil {
+			actorList = append(actorList, a)
+		}
 	}
 	return actorList
 }

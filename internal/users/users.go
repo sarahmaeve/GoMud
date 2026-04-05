@@ -387,6 +387,7 @@ func LoadUser(username string, skipValidation ...bool) (*UserRecord, error) {
 	loadedUser := &UserRecord{}
 	if err := yaml.Unmarshal([]byte(userFileTxt), loadedUser); err != nil {
 		mudlog.Error("LoadUser", "error", err.Error())
+		return nil, fmt.Errorf("LoadUser unmarshal: %w", err)
 	}
 
 	if len(skipValidation) == 0 || !skipValidation[0] {
