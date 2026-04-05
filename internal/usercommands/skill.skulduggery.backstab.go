@@ -92,7 +92,7 @@ func Backstab(rest string, user *users.UserRecord, room *rooms.Room, flags event
 	}
 
 	// Fire an event that a skill has been used
-	events.AddToQueue(events.SkillUsed{user.UserId, skills.Skulduggery, `backstab`})
+	events.AddToQueue(events.SkillUsed{UserId: user.UserId, Skill: skills.Skulduggery, Details: `backstab`})
 
 	if attackMobInstanceId > 0 {
 

@@ -41,7 +41,7 @@ func Disarm(rest string, user *users.UserRecord, room *rooms.Room, flags events.
 	}
 
 	// Fire an event that a skill has been used
-	events.AddToQueue(events.SkillUsed{user.UserId, skills.Brawling, `disarm`})
+	events.AddToQueue(events.SkillUsed{UserId: user.UserId, Skill: skills.Brawling, Details: `disarm`})
 
 	if attackMobInstanceId > 0 {
 

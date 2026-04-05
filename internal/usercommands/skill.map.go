@@ -52,7 +52,7 @@ func Map(rest string, user *users.UserRecord, room *rooms.Room, flags events.Eve
 	}
 
 	// Fire an event that a skill has been used
-	events.AddToQueue(events.SkillUsed{user.UserId, skills.Map, ``})
+	events.AddToQueue(events.SkillUsed{UserId: user.UserId, Skill: skills.Map, Details: ``})
 
 	// replace any non alpha/numeric characters in "rest"
 	zone := rest

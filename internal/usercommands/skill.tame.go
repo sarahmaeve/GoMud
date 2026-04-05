@@ -70,7 +70,7 @@ func Tame(rest string, user *users.UserRecord, room *rooms.Room, flags events.Ev
 	if mobId > 0 {
 
 		// Fire an event that a skill has been used
-		events.AddToQueue(events.SkillUsed{user.UserId, skills.Tame, ``})
+		events.AddToQueue(events.SkillUsed{UserId: user.UserId, Skill: skills.Tame, Details: ``})
 
 		if mob := mobs.GetInstance(mobId); mob != nil {
 

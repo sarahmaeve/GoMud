@@ -70,14 +70,14 @@ func ServerGetMemoryUsage() map[string]MemoryResult {
 	runtime.ReadMemStats(&m)
 
 	ret := map[string]MemoryResult{}
-	ret[`HeapAlloc (!Freed)`] = MemoryResult{m.HeapAlloc, 0}                   // Everything that hasn't been garbage collected
-	ret[`HeapSys (!Reclaimed)`] = MemoryResult{m.HeapSys, 0}                   // Everything that the OS hasn't reclaimed, even if it was freed by the GC
-	ret[`StackSys (Reserved)`] = MemoryResult{m.StackSys, 0}                   // Ho wmuch stack memory is allocated
-	ret[`StackInuse (In Use)`] = MemoryResult{m.StackInuse, 0}                 // How much stack memory is being used
-	ret[`Sys (Everything)`] = MemoryResult{m.Sys, 0}                           // heap, stacks, and other internal data structures
-	ret[`GC Count`] = MemoryResult{uint64(m.NumGC), 0}                         // How many times the GC has been run
-	ret[`Maximum Processors`] = MemoryResult{uint64(runtime.GOMAXPROCS(0)), 0} // How many processors are available for goroutines
-	ret[`Goroutines Count`] = MemoryResult{uint64(runtime.NumGoroutine()), 0}  // How many goroutines are currently running
+	ret[`HeapAlloc (!Freed)`] = MemoryResult{Memory: m.HeapAlloc, Count: 0}                   // Everything that hasn't been garbage collected
+	ret[`HeapSys (!Reclaimed)`] = MemoryResult{Memory: m.HeapSys, Count: 0}                   // Everything that the OS hasn't reclaimed, even if it was freed by the GC
+	ret[`StackSys (Reserved)`] = MemoryResult{Memory: m.StackSys, Count: 0}                   // Ho wmuch stack memory is allocated
+	ret[`StackInuse (In Use)`] = MemoryResult{Memory: m.StackInuse, Count: 0}                 // How much stack memory is being used
+	ret[`Sys (Everything)`] = MemoryResult{Memory: m.Sys, Count: 0}                           // heap, stacks, and other internal data structures
+	ret[`GC Count`] = MemoryResult{Memory: uint64(m.NumGC), Count: 0}                         // How many times the GC has been run
+	ret[`Maximum Processors`] = MemoryResult{Memory: uint64(runtime.GOMAXPROCS(0)), Count: 0} // How many processors are available for goroutines
+	ret[`Goroutines Count`] = MemoryResult{Memory: uint64(runtime.NumGoroutine()), Count: 0}  // How many goroutines are currently running
 
 	return ret
 }

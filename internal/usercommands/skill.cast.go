@@ -283,7 +283,7 @@ func Cast(rest string, user *users.UserRecord, room *rooms.Room, flags events.Ev
 		if continueCasting {
 
 			// Fire an event that a skill has been used
-			events.AddToQueue(events.SkillUsed{user.UserId, skills.Cast, spellInfo.SpellId})
+			events.AddToQueue(events.SkillUsed{UserId: user.UserId, Skill: skills.Cast, Details: spellInfo.SpellId})
 
 			user.Character.Mana -= spellInfo.Cost
 			events.AddToQueue(events.CharacterVitalsChanged{UserId: user.UserId})

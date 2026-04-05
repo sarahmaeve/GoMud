@@ -35,7 +35,7 @@ func Recover(rest string, user *users.UserRecord, room *rooms.Room, flags events
 	}
 
 	// Fire an event that a skill has been used
-	events.AddToQueue(events.SkillUsed{user.UserId, skills.Brawling, `recover`})
+	events.AddToQueue(events.SkillUsed{UserId: user.UserId, Skill: skills.Brawling, Details: `recover`})
 
 	user.AddBuff(23, `skill`) // Warriors respite
 

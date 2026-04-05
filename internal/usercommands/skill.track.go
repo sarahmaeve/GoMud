@@ -55,7 +55,7 @@ func Track(rest string, user *users.UserRecord, room *rooms.Room, flags events.E
 		}
 
 		// Fire an event that a skill has been used
-		events.AddToQueue(events.SkillUsed{user.UserId, skills.Track, ``})
+		events.AddToQueue(events.SkillUsed{UserId: user.UserId, Skill: skills.Track, Details: ``})
 
 		visitorData := make([]trackingInfo, 0)
 
@@ -183,7 +183,7 @@ func Track(rest string, user *users.UserRecord, room *rooms.Room, flags events.E
 	}
 
 	// Fire an event that a skill has been used
-	events.AddToQueue(events.SkillUsed{user.UserId, skills.Track, ``})
+	events.AddToQueue(events.SkillUsed{UserId: user.UserId, Skill: skills.Track, Details: ``})
 
 	//
 	// At skill level 3, search the room and adjacent rooms for quarry
