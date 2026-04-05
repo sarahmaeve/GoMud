@@ -17,8 +17,10 @@ func datafilesBackup() (string, error) {
 		return "", err
 	}
 
-	c := configs.GetConfig()
-	datafilesFolder := string(c.FilePaths.DataFiles)
+	// Use GetFilePathsConfig to get the data files path resolved
+	// against the data directory base — c.FilePaths.DataFiles would
+	// be the raw (possibly relative) config value.
+	datafilesFolder := configs.GetFilePathsConfig().DataFiles.String()
 
 	err = copyDir(datafilesFolder, tmpDir)
 	if err != nil {

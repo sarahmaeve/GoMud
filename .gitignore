@@ -11,3 +11,7 @@ server.key
 tmp-gomud.exe
 __debug*
 planning/
+_datafiles/db/
+*.db
+*.db-shm
+*.db-wal

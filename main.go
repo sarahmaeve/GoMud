@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"path"
+	"path/filepath"
 	"runtime"
 	"runtime/debug"
 	"slices"
@@ -43,6 +44,7 @@ import (
 	"github.com/GoMudEngine/GoMud/internal/mudlog"
 	"github.com/GoMudEngine/GoMud/internal/mutators"
 	"github.com/GoMudEngine/GoMud/internal/pets"
+	"github.com/GoMudEngine/GoMud/internal/persistence"
 	"github.com/GoMudEngine/GoMud/internal/plugins"
 	"github.com/GoMudEngine/GoMud/internal/quests"
 	"github.com/GoMudEngine/GoMud/internal/races"
@@ -118,9 +120,27 @@ func main() {
 		os.Getenv(`LOG_NOCOLOR`) == ``,
 	)
 
-	flags.HandleFlags(VERSION)
+	parsedFlags := flags.HandleFlags(VERSION)
 
-	configs.ReloadConfig()
+	// Resolve the data directory and config file path from flags.
+	// --data-dir defaults to ./_datafiles (relative to CWD).
+	// --config defaults to <data-dir>/config.yaml.
+	dataDir := parsedFlags.DataDir
+	if dataDir == "" {
+		dataDir = "_datafiles"
+	}
+	configs.SetDataDir(dataDir)
+
+	configFilePath := parsedFlags.ConfigPath
+	if configFilePath == "" {
+		configFilePath = filepath.Join(dataDir, "config.yaml")
+	}
+	configs.SetConfigPath(configFilePath)
+
+	if err := configs.ReloadConfig(); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to load config from %s: %v\n", configFilePath, err)
+		os.Exit(1)
+	}
 	c := configs.GetConfig()
 
 	lastKnownVersion, err := version.Parse(string(configs.GetServerConfig().CurrentVersion))
@@ -136,10 +156,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Default i18n localize folders
+	// Default i18n localize folders. The data directory base is
+	// resolved from --data-dir (see above); falls back to
+	// _datafiles for backward compatibility.
 	if len(c.Translation.LanguagePaths) == 0 {
 		c.Translation.LanguagePaths = []string{
-			path.Join("_datafiles", "localize"),
+			c.FilePaths.LocalizePath.String(),
 			path.Join(c.FilePaths.DataFiles.String(), "localize"),
 		}
 	}
@@ -190,8 +212,13 @@ func main() {
 	// System Configurations
 	runtime.GOMAXPROCS(int(c.Server.MaxCPUCores))
 
-	// Validate chosen world:
-	if err := util.ValidateWorldFiles(`_datafiles/world/default`, c.FilePaths.DataFiles.String()); err != nil {
+	// Validate chosen world: compare the configured world path against
+	// the reference default world shipped with the binary. The reference
+	// lives at <data-dir>/world/default (which is the built-in bundled
+	// world). If an operator configures a different DataFiles path,
+	// this validates their world against the reference.
+	referenceWorld := filepath.Join(dataDir, "world", "default")
+	if err := util.ValidateWorldFiles(referenceWorld, c.FilePaths.DataFiles.String()); err != nil {
 		mudlog.Error("World Validation", "error", err)
 		os.Exit(1)
 	}
@@ -219,6 +246,45 @@ func main() {
 
 	mudlog.Info(`========================`)
 
+	// Initialize the persistence store BEFORE loading data files.
+	// rooms.LoadDataFiles (called from loadAllDataFiles) triggers
+	// LoadRoomInstance for each room, which reads overlay state
+	// from the store — so the store must be ready before that runs.
+	//
+	// If the database file does not exist, --init-db must be passed
+	// explicitly — we don't silently create databases on startup. This
+	// prevents a misconfigured DatabasePath from bringing up an empty
+	// database alongside a real one.
+	dbPath := c.FilePaths.DatabasePath.String()
+	dbExists := true
+	if _, statErr := os.Stat(dbPath); os.IsNotExist(statErr) {
+		dbExists = false
+	}
+
+	if !dbExists && !parsedFlags.InitDB {
+		mudlog.Error("Persistence",
+			"error", "database file not found",
+			"path", dbPath,
+			"hint", "run with --init-db to create a fresh database")
+		os.Exit(1)
+	}
+
+	if !dbExists && parsedFlags.InitDB {
+		if mkdirErr := os.MkdirAll(filepath.Dir(dbPath), 0755); mkdirErr != nil {
+			mudlog.Error("Persistence", "error", "create db directory", "path", dbPath, "err", mkdirErr)
+			os.Exit(1)
+		}
+		mudlog.Info("Persistence", "action", "creating fresh database", "path", dbPath)
+	}
+
+	store, storeErr := persistence.Open(dbPath)
+	if storeErr != nil {
+		mudlog.Error("Persistence", "error", "open", "path", dbPath, "err", storeErr)
+		os.Exit(1)
+	}
+	users.SetStore(store)
+	rooms.SetStore(store)
+
 	// Load all the data files up front.
 	loadAllDataFiles(false)
 
@@ -231,10 +297,16 @@ func main() {
 
 	mudlog.Info(`========================`)
 
-	// The legacy file-based user index is no longer needed — SQLite
-	// provides indexed username lookups natively. The persistence store
-	// is initialized further down in the startup sequence (Stage 3
-	// of the Phase 4 migration wires --init-db and users.SetStore).
+	// If --create-admin was supplied, create the admin account now
+	// (after data files are loaded — ValidateName checks mob names).
+	if parsedFlags.HasCreateAdmin() {
+		if err := createAdminUser(parsedFlags.CreateAdminUsername, parsedFlags.CreateAdminPassword); err != nil {
+			mudlog.Error("Persistence", "error", "create admin", "err", err)
+			_ = store.Close()
+			os.Exit(1)
+		}
+		mudlog.Info("Persistence", "action", "created admin account", "username", parsedFlags.CreateAdminUsername)
+	}
 
 	// Load the round count from the file
 	if util.LoadRoundCount(c.FilePaths.DataFiles.String()+`/`+util.RoundCountFilename) == util.RoundCountMinimum {
@@ -345,6 +417,18 @@ func main() {
 	// Give it a second to disaptch any final messages in the event queue
 	// Example: discord server shutdown
 	time.Sleep(1 * time.Second)
+
+	// Close the persistence store last. Close() flushes any pending
+	// writes in the background worker queue and stops the worker
+	// goroutine. Missing this step would cause the most recent
+	// autosave batch to be lost on shutdown.
+	if s := users.GetStore(); s != nil {
+		if err := s.Close(); err != nil {
+			mudlog.Error("Persistence", "error", "close store", "err", err)
+		} else {
+			mudlog.Info("Persistence", "action", "store closed cleanly")
+		}
+	}
 }
 
 func handleTelnetConnection(connDetails *connections.ConnectionDetails, wg *sync.WaitGroup) {
@@ -978,4 +1062,53 @@ func loadAllDataFiles(isReload bool) {
 	colorpatterns.LoadColorPatterns()
 	audio.LoadAudioConfig()
 	characters.CompileAdjectiveSwaps() // This should come after loading color patterns.
+}
+
+// createAdminUser is called at startup when --create-admin is supplied
+// alongside --init-db. It validates the username and password against
+// the existing users package rules (name length, banned names, mob-name
+// collision, password length), creates a fresh UserRecord with admin
+// role, and inserts it into the persistence store.
+//
+// Returns an error on any validation failure; the caller should exit
+// the process without proceeding to normal startup.
+func createAdminUser(username, password string) error {
+	if err := users.ValidateName(username); err != nil {
+		return fmt.Errorf("invalid username: %w", err)
+	}
+	if err := users.ValidatePassword(password); err != nil {
+		return fmt.Errorf("invalid password: %w", err)
+	}
+	if users.Exists(username) {
+		return fmt.Errorf("username %q is already in use", username)
+	}
+
+	// NewUserRecord sets UserId=0 — CreateUser assigns the real id via
+	// GetUniqueUserId.
+	u := users.NewUserRecord(0, 0)
+	if err := u.SetUsername(username); err != nil {
+		return fmt.Errorf("set username: %w", err)
+	}
+	if err := u.SetPassword(password); err != nil {
+		return fmt.Errorf("set password: %w", err)
+	}
+
+	if err := users.CreateUser(u); err != nil {
+		return fmt.Errorf("create user: %w", err)
+	}
+
+	// Promote to admin and persist the role change.
+	u.Role = users.RoleAdmin
+	if err := users.SaveUser(*u); err != nil {
+		return fmt.Errorf("save admin role: %w", err)
+	}
+
+	// Flush so the admin row is committed before we continue startup.
+	if s := users.GetStore(); s != nil {
+		if err := s.Flush(); err != nil {
+			return fmt.Errorf("flush admin user: %w", err)
+		}
+	}
+
+	return nil
 }

@@ -27,10 +27,46 @@ var (
 	keyLookups  map[string]string = map[string]string{}
 	typeLookups map[string]string = map[string]string{}
 
+	// configFilePath is the resolved path to the main config.yaml.
+	// Set by SetConfigPath before ReloadConfig is called. Defaults to
+	// the legacy hardcoded _datafiles/config.yaml if never set.
+	configFilePath = `_datafiles/config.yaml`
+
+	// dataDirBase is the base data directory used to resolve relative
+	// paths in FilePaths config entries. Set by SetDataDir.
+	dataDirBase = `_datafiles`
+
 	configDataLock       sync.RWMutex
 	ErrInvalidConfigName = errors.New("invalid config name")
 	ErrLockedConfig      = errors.New("config name is locked")
 )
+
+// SetConfigPath sets the path that ReloadConfig will read the main
+// config.yaml from. Must be called before ReloadConfig. Accepts
+// absolute or relative paths; relative paths resolve against the
+// process working directory.
+func SetConfigPath(path string) {
+	configDataLock.Lock()
+	defer configDataLock.Unlock()
+	configFilePath = path
+}
+
+// SetDataDir sets the base data directory that FilePaths entries
+// resolve against. Entries with absolute paths are used as-is;
+// relative entries are joined with this base. Must be called before
+// ReloadConfig (or before any code reads resolved file paths).
+func SetDataDir(path string) {
+	configDataLock.Lock()
+	defer configDataLock.Unlock()
+	dataDirBase = path
+}
+
+// GetDataDir returns the currently configured data directory base.
+func GetDataDir() string {
+	configDataLock.RLock()
+	defer configDataLock.RUnlock()
+	return dataDirBase
+}
 
 type Config struct {
 	// Start config subsections
@@ -325,14 +361,31 @@ func SetVal(propertyPath string, newVal string) error {
 	return nil
 }
 
+// GetConfig returns the current config with FilePaths entries
+// resolved against the data directory base. Callers can safely
+// read c.FilePaths.DataFiles.String() etc. and get the final
+// filesystem path — no additional resolution needed.
+//
+// All other config sections (Server, Network, GamePlay, etc.) are
+// returned as stored.
 func GetConfig() Config {
 	configDataLock.RLock()
-	defer configDataLock.RUnlock()
-
 	if !configData.validated {
-		configData.Validate()
+		configDataLock.RUnlock()
+		configDataLock.Lock()
+		if !configData.validated {
+			configData.Validate()
+		}
+		configDataLock.Unlock()
+		configDataLock.RLock()
 	}
-	return configData
+	c := configData
+	configDataLock.RUnlock()
+
+	// Overlay resolved FilePaths so callers that do c.FilePaths.X
+	// get the final path, not the raw (possibly relative) one.
+	c.FilePaths = GetFilePathsConfig()
+	return c
 }
 
 func overridePath() string {
@@ -346,7 +399,9 @@ func overridePath() string {
 
 func ReloadConfig() error {
 
-	configPath := util.FilePath(`_datafiles/config.yaml`)
+	configDataLock.RLock()
+	configPath := util.FilePath(configFilePath)
+	configDataLock.RUnlock()
 
 	bytes, err := os.ReadFile(configPath)
 	if err != nil {
