@@ -29,13 +29,14 @@ When analyzing, reviewing, or writing Go code in this project, always use the av
 
 - **Fork development:** Create feature/fix branches from our `master`, develop and test, merge to `master` via PR on `sarahmaeve/GoMud`.
 - **Upstream contributions:** To send a fix to `GoMudEngine/GoMud`:
-  1. Cherry-pick the fix commit(s) onto a new branch from `upstream/master`:
+  1. **First, merge the PR to our fork's master.** The fix must land on our stable branch before cherry-picking to upstream.
+  2. Cherry-pick the fix commit(s) onto a new branch from `upstream/master`:
      ```
      git checkout -b upstream-fix/description upstream/master
      git cherry-pick <commit-hash>
      ```
-  2. Push to our fork: `git push origin upstream-fix/description`
-  3. PR to upstream: `gh pr create --repo GoMudEngine/GoMud --base master`
+  3. Push to our fork: `git push origin upstream-fix/description`
+  4. PR to upstream: `gh pr create --repo GoMudEngine/GoMud --base master`
 - **Keep commits self-contained** so they cherry-pick cleanly. Don't mix fork-specific changes (CLAUDE.md, .gitignore, planning/) with upstream-worthy fixes.
 - **Always use `gh repo set-default sarahmaeve/GoMud`** to ensure `gh` targets our fork by default. Use `--repo GoMudEngine/GoMud` explicitly for upstream PRs.
 
