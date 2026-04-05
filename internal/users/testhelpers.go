@@ -10,12 +10,16 @@ import "github.com/GoMudEngine/GoMud/internal/connections"
 // SetTestUser adds a user directly to the active users map.
 // For testing only.
 func SetTestUser(u *UserRecord) {
+	userManager.mu.Lock()
+	defer userManager.mu.Unlock()
 	userManager.Users[u.UserId] = u
 }
 
 // RemoveTestUser removes a user from the active users map.
 // For testing only.
 func RemoveTestUser(userId int) {
+	userManager.mu.Lock()
+	defer userManager.mu.Unlock()
 	delete(userManager.Users, userId)
 }
 
@@ -23,6 +27,8 @@ func RemoveTestUser(userId int) {
 // Must be called alongside SetTestUser so that GetByConnectionId resolves correctly.
 // For testing only.
 func SetTestConnection(connectionId connections.ConnectionId, userId int) {
+	userManager.mu.Lock()
+	defer userManager.mu.Unlock()
 	userManager.Connections[connectionId] = userId
 	userManager.UserConnections[userId] = connectionId
 }
