@@ -1,0 +1,24 @@
+{{template "header" .}}
+
+    <div class="container-fluid">
+        <h3>Server Config</h3>
+
+        <table class="table table-striped table-bordered">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Value</th>
+                </tr>
+            </thead>
+            <tbody>
+            {{range $name, $value := (.CONFIG.AllConfigData "bannednames" "*startroom*" "script*"  "onlogin*" "nextroomid*" "mob*" "*port" "seed*" "folder*" "file*" "seedint" "carefulsavefiles" "lootgoblin*" "maxcpucores" "*roommessagewrapper" "logintervalroundcount" ) }}
+            <tr>
+                <td>{{ $name }}</td>
+                <td>{{ $value }}</td>
+            </tr>
+            {{end}}
+            </tbody>
+        </table>
+    </div>
+
+{{template "footer" .}}

@@ -3,7 +3,7 @@ package web
 import (
 	"net/http"
 	"sort"
-	"text/template"
+	"html/template"
 
 	"github.com/GoMudEngine/GoMud/internal/buffs"
 	"github.com/GoMudEngine/GoMud/internal/colorpatterns"

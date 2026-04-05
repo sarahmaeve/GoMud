@@ -1,21 +1,9 @@
 {{template "header" .}}
 
     <div class="overlay">
-        <h3>Server Config: </h3>
-
-        <table>
-            <tr>
-                <th>Name</th>
-                <th>Value</th>
-            </tr>
-            {{range $name, $value := (.CONFIG.AllConfigData "bannednames" "*startroom*" "script*"  "onlogin*" "nextroomid*" "mob*" "*port" "seed*" "folder*" "file*" "seedint" "carefulsavefiles" "lootgoblin*" "maxcpucores" "*roommessagewrapper" "logintervalroundcount" ) }}
-            <tr>
-                <td>{{ $name }}</td>
-                <td>{{ $value }}</td>
-            </tr>
-            {{end}}
-        </table>
+        <h3>Access Denied</h3>
+        <p>Server configuration is only available to administrators.</p>
+        <p><a href="/admin/viewconfig">Admin login</a></p>
     </div>
-        <p>&nbsp;</p>
 
 {{template "footer" .}}

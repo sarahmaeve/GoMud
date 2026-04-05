@@ -8,11 +8,12 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
-	"text/template"
+	"html/template"
 	"time"
 
 	"github.com/GoMudEngine/GoMud/internal/configs"
@@ -26,9 +27,7 @@ var (
 	httpsServer *http.Server
 
 	upgrader = websocket.Upgrader{
-		CheckOrigin: func(r *http.Request) bool {
-			return true
-		},
+		CheckOrigin: checkWebSocketOrigin,
 	}
 
 	httpRoot = ``
@@ -36,6 +35,54 @@ var (
 	// Used to interface with plugins and request web stuff
 	webPlugins WebPlugin = nil
 )
+
+// checkWebSocketOrigin validates the Origin header of an incoming WebSocket upgrade
+// request to prevent cross-site WebSocket hijacking (CSRF via WebSocket).
+//
+// Rules, in order:
+//  1. Empty Origin (non-browser clients such as telnet tools) — allowed.
+//  2. Malformed Origin — rejected.
+//  3. Localhost variants (localhost, 127.0.0.1, ::1) — always allowed.
+//  4. Same-origin (origin host matches the request Host header) — allowed.
+//  5. Origin present in configs.GetNetworkConfig().AllowedWebOrigins — allowed.
+//  6. All other origins — rejected.
+func checkWebSocketOrigin(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+
+	// Non-browser clients don't send Origin; allow them to avoid breaking
+	// native telnet tools and custom WebSocket clients.
+	if origin == "" {
+		return true
+	}
+
+	originURL, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+
+	host := originURL.Hostname()
+
+	// Localhost is always permitted (local dev and admin connections).
+	if host == "localhost" || host == "127.0.0.1" || host == "::1" {
+		return true
+	}
+
+	// Same-origin: the WebSocket client is on the same host as the server.
+	if originURL.Host == r.Host {
+		return true
+	}
+
+	// Configured allowlist: comma-separated host or host:port values.
+	if allowedOrigins := configs.GetNetworkConfig().AllowedWebOrigins.String(); allowedOrigins != "" {
+		for _, entry := range strings.Split(allowedOrigins, ",") {
+			if strings.TrimSpace(entry) == originURL.Host {
+				return true
+			}
+		}
+	}
+
+	return false
+}
 
 type WebNav struct {
 	Name   string
@@ -139,7 +186,6 @@ func serveTemplate(w http.ResponseWriter, r *http.Request) {
 			{`Home`, `/`},
 			{`Who's Online`, `/online`},
 			{`Web Client`, `/webclient`},
-			{`See Configuration`, `/viewconfig`},
 		},
 	}
 
@@ -270,6 +316,11 @@ func Listen(wg *sync.WaitGroup, webSocketHandler func(*websocket.Conn)) {
 	// Admin tools
 	http.HandleFunc("GET /admin/", RunWithMUDLocked(
 		doBasicAuth(adminIndex),
+	))
+
+	// Config viewer (admin-only)
+	http.HandleFunc("GET /admin/viewconfig", RunWithMUDLocked(
+		doBasicAuth(adminViewConfig),
 	))
 
 	// Item Admin

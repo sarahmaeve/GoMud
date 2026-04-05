@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
-	"text/template"
+	"html/template"
 
 	"github.com/GoMudEngine/GoMud/internal/buffs"
 	"github.com/GoMudEngine/GoMud/internal/configs"
