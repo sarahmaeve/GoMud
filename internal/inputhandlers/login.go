@@ -4,6 +4,7 @@ import (
 	// ... other imports
 
 	"fmt"
+	"net"
 
 	"github.com/GoMudEngine/GoMud/internal/configs"
 	"github.com/GoMudEngine/GoMud/internal/connections"
@@ -25,9 +26,19 @@ func FinalizeLoginOrCreate(results map[string]string, sharedState map[string]any
 
 		if userExists {
 
+			// Check rate limiting before attempting password verification.
+			connDetails := connections.Get(clientInput.ConnectionId)
+			ip := extractIP(connDetails)
+			if defaultRateLimiter.IsBlocked(ip) {
+				connections.SendTo([]byte("Too many failed attempts. Please try again later."), clientInput.ConnectionId)
+				connections.SendTo(term.CRLF, clientInput.ConnectionId)
+				connections.Remove(clientInput.ConnectionId)
+				return false
+			}
+
 			if results["kickuser"] == "y" {
 
-				connDetails := connections.Get(clientInput.ConnectionId)
+				connDetails = connections.Get(clientInput.ConnectionId)
 
 				// Disconnect/kick the user currently connected
 				userid := users.FindUserId(results["username"])
@@ -55,6 +66,7 @@ func FinalizeLoginOrCreate(results map[string]string, sharedState map[string]any
 			}
 
 			if !tmpUser.PasswordMatches(password) {
+				defaultRateLimiter.RecordFailure(ip)
 				connections.SendTo([]byte(`Nope. Bye!`), clientInput.ConnectionId)
 				connections.SendTo(term.CRLF, clientInput.ConnectionId)
 				connections.Remove(clientInput.ConnectionId)
@@ -69,6 +81,7 @@ func FinalizeLoginOrCreate(results map[string]string, sharedState map[string]any
 				return false // Indicate failure, connection removed
 			}
 
+			defaultRateLimiter.RecordSuccess(ip)
 			sharedState["UserObject"] = loggedInUser // For main loop
 
 			if len(msg) > 0 {
@@ -147,6 +160,24 @@ func FinalizeLoginOrCreate(results map[string]string, sharedState map[string]any
 
 		return true // Indicate success, handler can be removed
 	}
+}
+
+// extractIP pulls the remote IP address out of a ConnectionDetails, stripping
+// the port so the rate limiter can key on IP alone.
+func extractIP(cd *connections.ConnectionDetails) string {
+	if cd == nil {
+		return ""
+	}
+	addr := cd.RemoteAddr()
+	if addr == nil {
+		return ""
+	}
+	host, _, err := net.SplitHostPort(addr.String())
+	if err != nil {
+		// addr.String() may already be a bare IP (e.g. from a Unix socket fallback).
+		return addr.String()
+	}
+	return host
 }
 
 func GetLoginPromptHandler() connections.InputHandler {
