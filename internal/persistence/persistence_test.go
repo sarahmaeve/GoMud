@@ -40,6 +40,7 @@ func openTestStorePaused(t *testing.T, queueSize int, enqueueTimeout time.Durati
 	s := &sqliteStore{
 		db:             db,
 		queue:          make(chan writeOp, queueSize),
+		stop:           make(chan struct{}),
 		workerDone:     make(chan struct{}),
 		flushReqCh:     make(chan chan struct{}, 16),
 		pauseCh:        make(chan struct{}),
@@ -429,6 +430,62 @@ func TestQueueBackpressure(t *testing.T) {
 	// Release the worker so the queue drains and Close doesn't hang.
 	release()
 	require.NoError(t, s.Flush())
+}
+
+// TestClose_RaceWithSaveUser is a regression test for the C1 bug where
+// Close() used to `close(queue)` while concurrent SaveUser goroutines
+// were still mid-send, panicking with "send on closed channel". The
+// fix replaces channel-close with a separate stop signal guarded by a
+// RWMutex that enqueue holds as a reader for the duration of the send.
+//
+// This test spins up many concurrent savers, closes the store while
+// they are still running, and asserts that:
+//  1. No goroutine panics (closed-channel panic).
+//  2. Every SaveUser call either returns nil (enqueued before stop)
+//     or a non-nil error (rejected after stop), never both and never
+//     a panic.
+//
+// Run with -race to also catch any data race on the stopped flag.
+func TestClose_RaceWithSaveUser(t *testing.T) {
+	s := openTestStore(t)
+
+	const writers = 32
+	const perWriter = 200
+
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	panics := make(chan any, writers)
+
+	for w := 0; w < writers; w++ {
+		wg.Add(1)
+		go func(writerID int) {
+			defer wg.Done()
+			defer func() {
+				if r := recover(); r != nil {
+					panics <- r
+				}
+			}()
+			<-start
+			for i := 0; i < perWriter; i++ {
+				// Errors after Close are expected; what we are
+				// asserting is that the call returns cleanly rather
+				// than panicking.
+				_ = s.SaveUser(makeUser(writerID*10000+i+1, fmt.Sprintf("u%d_%d", writerID, i)))
+			}
+		}(w)
+	}
+
+	close(start)
+	// Let the writers get into flight, then close concurrently.
+	time.Sleep(2 * time.Millisecond)
+	closeErr := s.Close()
+	wg.Wait()
+	close(panics)
+
+	require.NoError(t, closeErr, "Close should not error")
+	for p := range panics {
+		t.Fatalf("writer goroutine panicked: %v", p)
+	}
 }
 
 // testContext returns a context for use in tests.

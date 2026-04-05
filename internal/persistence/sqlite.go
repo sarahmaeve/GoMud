@@ -53,13 +53,35 @@ type storeStats struct {
 
 // sqliteStore is the SQLite-backed Store implementation.
 type sqliteStore struct {
-	db    *sql.DB
+	db *sql.DB
+
+	// queue is the write buffer drained by the background worker.
+	// It is NEVER closed — closing it introduces a race where an
+	// in-flight enqueue can panic with "send on closed channel".
+	// Instead, the worker exits when stop is closed, and the queue
+	// channel is garbage collected when the store is.
 	queue chan writeOp
 
-	// Lifecycle
+	// queueMu gates access to the queue channel during shutdown.
+	// enqueue takes RLock and verifies stopped is false before
+	// sending. Close takes Lock, sets stopped, then signals the
+	// worker to drain and exit. This prevents any goroutine from
+	// sending on the queue after the worker has stopped.
+	queueMu sync.RWMutex
+	stopped bool
+
+	// stop is closed by Close() to signal the worker to commit its
+	// final batch and exit. The worker selects on both stop and
+	// queue, so it drains any remaining enqueued ops before exiting.
+	stop chan struct{}
+
+	// workerDone is closed by the worker when it exits. Close()
+	// blocks on this to ensure the final batch is committed before
+	// returning.
 	workerDone chan struct{}
-	closed     atomic.Bool
-	closeMu    sync.Mutex
+
+	// closeOnce guards close(stop) so Close is idempotent.
+	closeOnce sync.Once
 
 	// Test-only: when non-nil, the worker blocks on this channel before
 	// reading from the queue, allowing tests to saturate the queue
@@ -142,6 +164,7 @@ func openWithConfig(path string, queueSize, batchSize int, batchWindow, enqueueT
 	s := &sqliteStore{
 		db:             db,
 		queue:          make(chan writeOp, queueSize),
+		stop:           make(chan struct{}),
 		workerDone:     make(chan struct{}),
 		flushReqCh:     make(chan chan struct{}, 16),
 		queueSize:      queueSize,
@@ -208,14 +231,45 @@ func (s *sqliteStore) worker() {
 		stopTimer()
 	}
 
-	for {
-		select {
-		case op, ok := <-s.queue:
-			if !ok {
-				// Queue closed: commit whatever is in the batch and exit.
-				commit()
+	// drainPending reads any ops already in the queue (non-blocking)
+	// and adds them to the batch. Used on flush requests and shutdown
+	// so buffered ops are not lost.
+	drainPending := func() {
+		for {
+			select {
+			case op := <-s.queue:
+				if _, exists := batch[op.key]; exists {
+					s.opsCoalesced.Add(1)
+				}
+				batch[op.key] = op
+			default:
 				return
 			}
+		}
+	}
+
+	for {
+		select {
+		case <-s.stop:
+			// Close signaled shutdown. Drain any remaining ops from
+			// the queue, commit the final batch, ack any pending
+			// flush requests, then exit.
+			drainPending()
+			commit()
+			// Drain and close any flush ack channels that were
+			// waiting — callers get a clean ack rather than a timeout.
+		drainFlush:
+			for {
+				select {
+				case ack := <-s.flushReqCh:
+					close(ack)
+				default:
+					break drainFlush
+				}
+			}
+			return
+
+		case op := <-s.queue:
 			if _, exists := batch[op.key]; exists {
 				s.opsCoalesced.Add(1)
 			}
@@ -233,25 +287,7 @@ func (s *sqliteStore) worker() {
 			commit()
 
 		case ack := <-s.flushReqCh:
-			// Drain any currently-queued ops into the batch so they're
-			// included in this flush, then commit.
-		drainLoop:
-			for {
-				select {
-				case op, ok := <-s.queue:
-					if !ok {
-						commit()
-						close(ack)
-						return
-					}
-					if _, exists := batch[op.key]; exists {
-						s.opsCoalesced.Add(1)
-					}
-					batch[op.key] = op
-				default:
-					break drainLoop
-				}
-			}
+			drainPending()
 			commit()
 			close(ack)
 		}
@@ -331,8 +367,16 @@ func (s *sqliteStore) commitBatch(batch map[opKey]writeOp) {
 }
 
 // enqueue adds an op to the write queue with a timeout.
+//
+// Holds queueMu as a reader for the duration of the send. Close takes
+// the write lock and flips stopped, so once Close returns from its
+// critical section no new enqueue can observe stopped=false and start a
+// send. This closes the C1 race where Close() used to close the queue
+// channel while a concurrent SaveUser was mid-send, causing a panic.
 func (s *sqliteStore) enqueue(op writeOp) error {
-	if s.closed.Load() {
+	s.queueMu.RLock()
+	defer s.queueMu.RUnlock()
+	if s.stopped {
 		return errors.New("persistence: store is closed")
 	}
 	s.opsEnqueued.Add(1)
@@ -510,7 +554,10 @@ func (s *sqliteStore) AllRoomInstanceIds() ([]int, error) {
 // committed. Writes enqueued AFTER the call are not guaranteed to be
 // included (they may or may not ride along depending on timing).
 func (s *sqliteStore) Flush() error {
-	if s.closed.Load() {
+	s.queueMu.RLock()
+	stopped := s.stopped
+	s.queueMu.RUnlock()
+	if stopped {
 		return errors.New("persistence: store is closed")
 	}
 	ack := make(chan struct{})
@@ -529,19 +576,25 @@ func (s *sqliteStore) Flush() error {
 
 // Close flushes all pending writes, stops the worker, and closes the DB.
 // Calling Close more than once is safe; subsequent calls are no-ops.
+//
+// The queue channel is intentionally NOT closed — doing so would race
+// with concurrent enqueue and panic with "send on closed channel". Instead
+// we flip stopped under queueMu (which enqueue holds as a reader for the
+// duration of its send), then signal the worker via the stop channel.
+// Any in-flight enqueue that passed the stopped check before we took the
+// write lock will complete its send; the worker drains those before exit.
 func (s *sqliteStore) Close() error {
-	s.closeMu.Lock()
-	defer s.closeMu.Unlock()
-
-	if s.closed.Load() {
+	s.queueMu.Lock()
+	if s.stopped {
+		s.queueMu.Unlock()
 		return nil
 	}
+	s.stopped = true
+	s.queueMu.Unlock()
 
-	// Mark closed first so new enqueues see it.
-	s.closed.Store(true)
-
-	// Close the queue so the worker drains and exits.
-	close(s.queue)
+	// Signal the worker to drain and exit. sync.Once guards against any
+	// accidental double-close; Close() itself is already guarded above.
+	s.closeOnce.Do(func() { close(s.stop) })
 
 	// Wait for the worker to finish (commits final batch on its way out).
 	<-s.workerDone
