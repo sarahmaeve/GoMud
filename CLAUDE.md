@@ -38,6 +38,7 @@ When analyzing, reviewing, or writing Go code in this project, always use the av
   3. Push to our fork: `git push origin upstream-fix/description`
   4. PR to upstream: `gh pr create --repo GoMudEngine/GoMud --base master`
 - **Keep commits self-contained** so they cherry-pick cleanly. Don't mix fork-specific changes (CLAUDE.md, .gitignore, planning/) with upstream-worthy fixes.
+- **Tracking upstream candidates:** When a fix is merged to our fork but NOT sent upstream, record the commit hash in `planning/upstream-candidates.md` so it can be cherry-picked later.
 - **Always use `gh repo set-default sarahmaeve/GoMud`** to ensure `gh` targets our fork by default. Use `--repo GoMudEngine/GoMud` explicitly for upstream PRs.
 
 ## Issue Tracking
