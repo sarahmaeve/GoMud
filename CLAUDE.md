@@ -25,6 +25,7 @@ When analyzing, reviewing, or writing Go code in this project, always use the av
 - **Regression check.** After any non-trivial fix, especially CRITICAL or HIGH severity, recheck for possible regressions in related code paths.
 - **General principle:** Create tests or instrument code first, then repair bugs. Never ship a fix without a way to verify it works.
 - **Difficulty is not an excuse to skip tests.** If a test appears hard to write (complex setup, infrastructure dependencies, filesystem/network scaffolding), DO NOT silently skip it. Instead, surface the difficulty to the user with specifics about what makes it hard, and ask whether to: (a) invest in the setup, (b) skip with an explicit note, or (c) defer with a tracked TODO. The user decides — not the agent.
+- **Always run `go vet ./...` before committing.** `go vet` catches classes of bugs that tests won't (copied mutexes, unreachable code, printf format mismatches, etc.). It's enforced in CI but should also be part of your local verification alongside `go test -race ./...`.
 
 ## Git Workflow
 
