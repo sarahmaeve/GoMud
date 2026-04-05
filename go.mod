@@ -1,13 +1,13 @@
 module github.com/GoMudEngine/GoMud
 
-go 1.24.0
+go 1.25.0
 
 require (
 	github.com/dop251/goja v0.0.0-20231027120936-b396bb4c349d
 	github.com/gorilla/websocket v1.5.3
 	github.com/natefinch/lumberjack v2.0.0+incompatible
 	github.com/stretchr/testify v1.11.1
-	golang.org/x/text v0.30.0
+	golang.org/x/text v0.35.0
 )
 
 require (
@@ -29,4 +29,7 @@ require (
 	gopkg.in/yaml.v2 v2.4.0
 )
 
-require github.com/clipperhouse/uax29/v2 v2.2.0 // indirect
+require (
+	github.com/clipperhouse/uax29/v2 v2.2.0 // indirect
+	golang.org/x/crypto v0.49.0 // indirect
+)
