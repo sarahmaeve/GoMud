@@ -26,6 +26,7 @@ When analyzing, reviewing, or writing Go code in this project, always use the av
 - **General principle:** Create tests or instrument code first, then repair bugs. Never ship a fix without a way to verify it works.
 - **Difficulty is not an excuse to skip tests.** If a test appears hard to write (complex setup, infrastructure dependencies, filesystem/network scaffolding), DO NOT silently skip it. Instead, surface the difficulty to the user with specifics about what makes it hard, and ask whether to: (a) invest in the setup, (b) skip with an explicit note, or (c) defer with a tracked TODO. The user decides — not the agent.
 - **Always run `go vet ./...` before committing.** `go vet` catches classes of bugs that tests won't (copied mutexes, unreachable code, printf format mismatches, etc.). It's enforced in CI but should also be part of your local verification alongside `go test -race ./...`.
+- **Always run `gofmt -w .` before committing.** Unformatted files will fail CI. Run after any Edit or Write to Go source files. Also enforced in CI via `gofmt -l .` (fails the build if any file is out of format).
 
 ## Git Workflow
 
