@@ -39,6 +39,12 @@ func (wi WorldInput) Id() int {
 	return wi.FromId
 }
 
+type autoCompleteRequest struct {
+	userId int
+	input  string
+	reply  chan []string // buffered(1) so worker never blocks
+}
+
 type World struct {
 	worldInput         chan WorldInput
 	ignoreInput        map[int]uint64 // userid->turn set to ignore
@@ -46,6 +52,7 @@ type World struct {
 	leaveWorldUserId   chan int
 	logoutConnectionId chan connections.ConnectionId
 	zombieFlag         chan [2]int
+	autoCompleteReq    chan autoCompleteRequest
 	//
 	eventRequeue          []events.Event
 	userInputEventTracker map[int]struct{}
@@ -61,6 +68,7 @@ func NewWorld(osSignalChan chan os.Signal) *World {
 		leaveWorldUserId:   make(chan int),
 		logoutConnectionId: make(chan connections.ConnectionId),
 		zombieFlag:         make(chan [2]int),
+		autoCompleteReq:    make(chan autoCompleteRequest),
 		//
 		eventRequeue:          []events.Event{},
 		userInputEventTracker: map[int]struct{}{},
@@ -299,7 +307,7 @@ Connected		+ InWorld  (non-zombie) 	No record in users.ZombieConnections								
 Disconnected	+ InWorld  (zombie)			Has record in users.ZombieConnections 								| has zombie flag		| user object in room
 */
 
-func (w *World) GetAutoComplete(userId int, inputText string) []string {
+func (w *World) doGetAutoComplete(userId int, inputText string) []string {
 
 	suggestions := []string{}
 
@@ -701,6 +709,30 @@ func (w *World) GetAutoComplete(userId int, inputText string) []string {
 	return suggestions
 }
 
+// GetAutoComplete is safe to call from any goroutine.
+// It sends a request to MainWorker, which runs the actual lookup
+// under the game lock and returns the result.
+func (w *World) GetAutoComplete(userId int, inputText string) []string {
+	reply := make(chan []string, 1)
+	req := autoCompleteRequest{
+		userId: userId,
+		input:  inputText,
+		reply:  reply,
+	}
+	select {
+	case w.autoCompleteReq <- req:
+		// sent; wait for reply
+	case <-time.After(500 * time.Millisecond):
+		return nil
+	}
+	select {
+	case result := <-reply:
+		return result
+	case <-time.After(500 * time.Millisecond):
+		return nil
+	}
+}
+
 const (
 	// Used in GameTickWorker()
 	// Used in MaintenanceWorker()
@@ -842,6 +874,20 @@ loop:
 				util.UnlockMud()
 
 			}
+
+		case req := <-w.autoCompleteReq:
+
+			util.LockMud()
+			result := w.doGetAutoComplete(req.userId, req.input)
+			util.UnlockMud()
+
+			// Non-blocking send to buffered reply channel.
+			// If the caller already timed out, drop the result.
+			select {
+			case req.reply <- result:
+			default:
+			}
+
 		}
 		c = configs.GetConfig()
 	}
