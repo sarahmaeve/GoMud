@@ -134,22 +134,9 @@ func TestDoBasicAuth_AllowsLocalhostWithoutBlock(t *testing.T) {
 
 	protected := doBasicAuth(inner)
 
-	// Simulate many failures from a remote IP to trigger the rate limiter.
-	limiter := &webRateLimiter{attempts: make(map[string]*webAttemptInfo)}
-	for range 15 {
-		limiter.recordFailure("203.0.113.2")
-	}
-
-	// Localhost should never be blocked regardless of attempt count.
-	if limiter.isBlocked("127.0.0.1") {
-		t.Error("localhost should never be rate-limited")
-	}
-	if limiter.isBlocked("::1") {
-		t.Error("IPv6 loopback should never be rate-limited")
-	}
-
 	// A request from localhost without credentials should still get 401
-	// (auth required) but NOT 429 (rate limited).
+	// (auth required) but NOT 429 (rate limited), regardless of how many
+	// failures have been recorded globally.
 	req := httptest.NewRequest(http.MethodGet, "/admin/viewconfig", nil)
 	req.RemoteAddr = "127.0.0.1:9999"
 	rr := httptest.NewRecorder()

@@ -10,7 +10,7 @@ import (
 // TestGetAllConnectionIds verifies that GetAllConnectionIds returns exactly the
 // connections present in netConnections with no leading zero values.
 func TestGetAllConnectionIds(t *testing.T) {
-	t.Parallel()
+	// Not parallel: mutates the package-level netConnections map.
 
 	// White-box: manipulate the package-level map directly under the lock.
 	lock.Lock()
@@ -164,11 +164,10 @@ func TestInputDisabled_Race(t *testing.T) {
 
 	wg.Wait()
 
-	// After all writers have finished, a read must return a valid bool (not torn).
-	result := cd.InputDisabled()
-	if result != true && result != false {
-		t.Errorf("InputDisabled() returned an unexpected value: %v", result)
-	}
+	// The primary correctness signal for this test is -race: if atomic.Bool
+	// were replaced with a plain bool, the race detector would flag the
+	// concurrent reads and writes above. No value assertion is needed here.
+	_ = cd.InputDisabled()
 }
 
 // TestInputDisabled_SetAndGet verifies the basic set-and-get semantics of

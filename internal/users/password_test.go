@@ -6,6 +6,7 @@ import (
 
 	"github.com/GoMudEngine/GoMud/internal/configs"
 	"github.com/GoMudEngine/GoMud/internal/util"
+	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -32,19 +33,19 @@ func bcryptHash(t *testing.T, pw string) string {
 // ---------------------------------------------------------------------------
 
 func TestUserRecord_SetPassword_StoresBcryptHash(t *testing.T) {
-	t.Parallel()
+	// Not parallel: mutates global config via setupPasswordConfig.
+	setupPasswordConfig(t, 1, 72)
 
 	u := newTestUser()
-	// Set the hash directly to avoid config dependency, then verify the format
-	// produced by the real SetPassword path by calling bcrypt ourselves.
-	hash, err := bcrypt.GenerateFromPassword([]byte("hunter2"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	u.Password = string(hash)
+	require.NoError(t, u.SetPassword("hunter2"))
 
 	if !strings.HasPrefix(u.Password, "$2a$") && !strings.HasPrefix(u.Password, "$2b$") {
 		t.Errorf("expected bcrypt hash (prefix $2a$ or $2b$), got %q", u.Password)
+	}
+
+	// Sanity check: the stored hash should verify against the original password.
+	if err := bcrypt.CompareHashAndPassword([]byte(u.Password), []byte("hunter2")); err != nil {
+		t.Errorf("SetPassword did not store a verifiable bcrypt hash: %v", err)
 	}
 }
 
@@ -164,32 +165,25 @@ func TestUserRecord_PasswordMatches_MigratedHashWorksOnNextLogin(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestUserRecord_SetPassword_DifferentHashesForSamePassword(t *testing.T) {
-	t.Parallel()
+	// Not parallel: mutates global config via setupPasswordConfig.
+	setupPasswordConfig(t, 1, 72)
 
 	const pw = "shared-password"
 
-	h1, err := bcrypt.GenerateFromPassword([]byte(pw), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	h2, err := bcrypt.GenerateFromPassword([]byte(pw), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if string(h1) == string(h2) {
-		t.Error("two bcrypt hashes of the same password are identical — salt is not being applied")
-	}
-
-	// Both hashes must still verify against the original password.
 	u1, u2 := newTestUser(), newTestUser()
-	u1.Password, u2.Password = string(h1), string(h2)
+	require.NoError(t, u1.SetPassword(pw))
+	require.NoError(t, u2.SetPassword(pw))
 
+	if u1.Password == u2.Password {
+		t.Error("SetPassword produced identical hashes for the same password — salt is not being applied")
+	}
+
+	// Both records must still authenticate with the shared password.
 	if !u1.PasswordMatches(pw) {
-		t.Error("u1.PasswordMatches returned false")
+		t.Error("u1.PasswordMatches returned false after SetPassword")
 	}
 	if !u2.PasswordMatches(pw) {
-		t.Error("u2.PasswordMatches returned false")
+		t.Error("u2.PasswordMatches returned false after SetPassword")
 	}
 }
 
