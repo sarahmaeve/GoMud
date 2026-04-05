@@ -1,10 +1,12 @@
 package users
 
 import (
+	"strings"
 	"sync"
 	"testing"
 
 	"github.com/GoMudEngine/GoMud/internal/connections"
+	"gopkg.in/yaml.v3"
 )
 
 // TestUserManager_ConcurrentAccess exercises concurrent reads and writes on
@@ -52,6 +54,86 @@ func TestUserManager_ConcurrentAccess(t *testing.T) {
 	}
 
 	wg.Wait()
+}
+
+// TestUserRecord_UnsentText_ConcurrentAccess exercises concurrent SetUnsentText /
+// GetUnsentText calls on a single UserRecord from multiple goroutines.
+// Run with -race: the test MUST FAIL (data race) before the unsentMu mutex is
+// added to UserRecord, and MUST PASS afterwards.
+func TestUserRecord_UnsentText_ConcurrentAccess(t *testing.T) {
+	u := &UserRecord{}
+
+	const goroutines = 20
+	var wg sync.WaitGroup
+	wg.Add(goroutines * 2)
+
+	// Writers: call SetUnsentText concurrently.
+	for i := 0; i < goroutines; i++ {
+		i := i
+		go func() {
+			defer wg.Done()
+			u.SetUnsentText("typing something", "suggestion"+string(rune('A'+i%26)))
+		}()
+	}
+
+	// Readers: call GetUnsentText concurrently.
+	for i := 0; i < goroutines; i++ {
+		go func() {
+			defer wg.Done()
+			_, _ = u.GetUnsentText()
+		}()
+	}
+
+	wg.Wait()
+}
+
+// TestUserRecord_YAMLMarshal_UnsentMuNotSerialized verifies two things:
+//  1. A UserRecord can be marshaled to YAML and back without error (the mutex
+//     field does not break serialization).
+//  2. The mutex field (unsentMu) is NOT present in the YAML output — it must
+//     never be persisted to the user file on disk.
+func TestUserRecord_YAMLMarshal_UnsentMuNotSerialized(t *testing.T) {
+	u := &UserRecord{
+		UserId:   42,
+		Username: "testplayer",
+		Role:     RoleUser,
+	}
+	// Set some unsent text to prove the mutex is in use.
+	u.SetUnsentText("partial command", "suggestion")
+
+	out, err := yaml.Marshal(u)
+	if err != nil {
+		t.Fatalf("yaml.Marshal failed: %v", err)
+	}
+
+	yamlStr := string(out)
+
+	// The mutex field must not appear in the YAML output.
+	if strings.Contains(yamlStr, "unsentmu") || strings.Contains(yamlStr, "unsentMu") {
+		t.Errorf("YAML output contains mutex field, which must not be serialized:\n%s", yamlStr)
+	}
+	// The unsent text fields are unexported and must also not appear.
+	if strings.Contains(yamlStr, "unsenttext") || strings.Contains(yamlStr, "unsentText") {
+		t.Errorf("YAML output contains unsentText field, which must not be serialized:\n%s", yamlStr)
+	}
+	if strings.Contains(yamlStr, "suggesttext") || strings.Contains(yamlStr, "suggestText") {
+		t.Errorf("YAML output contains suggestText field, which must not be serialized:\n%s", yamlStr)
+	}
+
+	// Round-trip: unmarshal back and verify exported fields survived.
+	var u2 UserRecord
+	if err := yaml.Unmarshal(out, &u2); err != nil {
+		t.Fatalf("yaml.Unmarshal failed: %v", err)
+	}
+	if u2.UserId != u.UserId {
+		t.Errorf("UserId mismatch after round-trip: got %d, want %d", u2.UserId, u.UserId)
+	}
+	if u2.Username != u.Username {
+		t.Errorf("Username mismatch after round-trip: got %q, want %q", u2.Username, u.Username)
+	}
+	if u2.Role != u.Role {
+		t.Errorf("Role mismatch after round-trip: got %q, want %q", u2.Role, u.Role)
+	}
 }
 
 // TestUserManager_ConcurrentLogout exercises concurrent LogOutUserByConnectionId

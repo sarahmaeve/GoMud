@@ -567,12 +567,7 @@ func handleTelnetConnection(connDetails *connections.ConnectionDetails, wg *sync
 			}
 
 			if redrawPrompt {
-				pTxt := userObject.GetCommandPrompt()
-				if connections.IsWebsocket(clientInput.ConnectionId) {
-					connections.SendTo([]byte(pTxt), clientInput.ConnectionId)
-				} else {
-					connections.SendTo([]byte(templates.AnsiParse(pTxt)), clientInput.ConnectionId)
-				}
+				events.AddToQueue(events.RedrawPrompt{UserId: userObject.UserId})
 			}
 
 			continue
@@ -677,11 +672,7 @@ func handleTelnetConnection(connDetails *connections.ConnectionDetails, wg *sync
 					sug.Clear()
 					userObject.SetUnsentText(string(clientInput.Buffer), ``)
 
-					if connections.IsWebsocket(clientInput.ConnectionId) {
-						connections.SendTo([]byte(userObject.GetCommandPrompt()), clientInput.ConnectionId)
-					} else {
-						connections.SendTo([]byte(templates.AnsiParse(userObject.GetCommandPrompt())), clientInput.ConnectionId)
-					}
+					events.AddToQueue(events.RedrawPrompt{UserId: userObject.UserId})
 
 				}
 
