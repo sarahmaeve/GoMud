@@ -174,6 +174,9 @@ func TryRoomCommand(cmd string, rest string, userId int) (bool, error) {
 	}
 
 	room := rooms.LoadRoom(user.Character.RoomId)
+	if room == nil {
+		return false, fmt.Errorf("room %d not found", user.Character.RoomId)
+	}
 
 	altCmd, _ := room.FindExitByName(cmd)
 
