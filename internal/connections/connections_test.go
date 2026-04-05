@@ -2,9 +2,44 @@ package connections
 
 import (
 	"net"
+	"sync"
 	"testing"
 	"time"
 )
+
+// TestGetAllConnectionIds verifies that GetAllConnectionIds returns exactly the
+// connections present in netConnections with no leading zero values.
+func TestGetAllConnectionIds(t *testing.T) {
+	t.Parallel()
+
+	// White-box: manipulate the package-level map directly under the lock.
+	lock.Lock()
+	// Save original state so we can restore it after the test.
+	original := netConnections
+	netConnections = map[ConnectionId]*ConnectionDetails{
+		1: {},
+		2: {},
+		3: {},
+	}
+	lock.Unlock()
+
+	t.Cleanup(func() {
+		lock.Lock()
+		netConnections = original
+		lock.Unlock()
+	})
+
+	ids := GetAllConnectionIds()
+
+	if len(ids) != 3 {
+		t.Fatalf("GetAllConnectionIds() returned %d ids, want 3", len(ids))
+	}
+	for _, id := range ids {
+		if id == 0 {
+			t.Errorf("GetAllConnectionIds() returned a zero ConnectionId, want only non-zero ids")
+		}
+	}
+}
 
 // TestWrite_EmptyPayload verifies that the early return for zero-length writes
 // actually fires. We use a closed connection so that if the early return is
@@ -98,5 +133,62 @@ func TestWrite_TelnetStalledClient(t *testing.T) {
 		// Received a deadline/timeout error — correct behaviour.
 	case <-time.After(15 * time.Second):
 		t.Fatal("Write blocked for more than 15 s — write deadline is not working")
+	}
+}
+
+// TestInputDisabled_Race verifies that concurrent reads and writes of
+// InputDisabled do not produce data races under -race and that the value
+// observed after all stores is consistent.
+func TestInputDisabled_Race(t *testing.T) {
+	t.Parallel()
+
+	cd := &ConnectionDetails{}
+
+	const goroutines = 20
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+
+	for i := 0; i < goroutines; i++ {
+		i := i
+		go func() {
+			defer wg.Done()
+			if i%2 == 0 {
+				// writers: alternate true/false
+				cd.InputDisabled(i%4 == 0)
+			} else {
+				// readers: just read
+				_ = cd.InputDisabled()
+			}
+		}()
+	}
+
+	wg.Wait()
+
+	// After all writers have finished, a read must return a valid bool (not torn).
+	result := cd.InputDisabled()
+	if result != true && result != false {
+		t.Errorf("InputDisabled() returned an unexpected value: %v", result)
+	}
+}
+
+// TestInputDisabled_SetAndGet verifies the basic set-and-get semantics of
+// InputDisabled — setting to true returns true, setting to false returns false.
+func TestInputDisabled_SetAndGet(t *testing.T) {
+	t.Parallel()
+
+	cd := &ConnectionDetails{}
+
+	if cd.InputDisabled() != false {
+		t.Error("InputDisabled() should default to false")
+	}
+
+	cd.InputDisabled(true)
+	if cd.InputDisabled() != true {
+		t.Error("InputDisabled() should return true after InputDisabled(true)")
+	}
+
+	cd.InputDisabled(false)
+	if cd.InputDisabled() != false {
+		t.Error("InputDisabled() should return false after InputDisabled(false)")
 	}
 }

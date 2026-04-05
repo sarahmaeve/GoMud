@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"crypto/md5"
@@ -27,9 +28,9 @@ import (
 )
 
 var (
-	turnCount    uint64 = 0
-	roundCount   uint64 = RoundCountMinimum
-	timeTrackers        = map[string]*Accumulator{}
+	turnCount    atomic.Uint64
+	roundCount   atomic.Uint64
+	timeTrackers = map[string]*Accumulator{}
 	serverAddr   string = `Unknown`
 
 	strippablePrepositions = []string{
@@ -71,6 +72,10 @@ const (
 	RoundCountFilename = `.roundcount`
 )
 
+func init() {
+	roundCount.Store(RoundCountMinimum)
+}
+
 // Mutex lock intended for synchronizing at a high level between
 // components that may asyncronously access game data
 func LockMud() {
@@ -102,25 +107,23 @@ func GetServerAddress() string {
 }
 
 func SetRoundCount(newRoundCount uint64) {
-	roundCount = newRoundCount
+	roundCount.Store(newRoundCount)
 }
 
 func IncrementTurnCount() uint64 {
-	turnCount++
-	return turnCount
+	return turnCount.Add(1)
 }
 
 func GetTurnCount() uint64 {
-	return turnCount
+	return turnCount.Load()
 }
 
 func IncrementRoundCount() uint64 {
-	roundCount++
-	return roundCount
+	return roundCount.Add(1)
 }
 
 func GetRoundCount() uint64 {
-	return roundCount
+	return roundCount.Load()
 }
 
 func TrackTime(name string, timePassed float64) {
@@ -868,7 +871,7 @@ func BoolYN(b bool) string {
 
 func SaveRoundCount(fpath string) {
 
-	err := os.WriteFile(fpath, []byte(strconv.FormatUint(roundCount, 10)), 0644)
+	err := os.WriteFile(fpath, []byte(strconv.FormatUint(roundCount.Load(), 10)), 0644)
 	if err != nil {
 		mudlog.Error("SaveRoundCount()", "error", err)
 	}
@@ -879,24 +882,24 @@ func LoadRoundCount(fpath string) uint64 {
 
 	roundCountData, err := os.ReadFile(fpath)
 	if err != nil {
-		roundCount = RoundCountMinimum
+		roundCount.Store(RoundCountMinimum)
 		mudlog.Warn("LoadRoundCount()", "error", err, "message", "Trying to create... (First time running?)")
 		SaveRoundCount(fpath)
-		roundCountData = []byte(strconv.FormatUint(roundCount, 10))
+		roundCountData = []byte(strconv.FormatUint(roundCount.Load(), 10))
 	}
 
 	roundCountUint64, err := strconv.ParseUint(string(roundCountData), 10, 64)
 	if err != nil {
 		mudlog.Warn("LoadRoundCount()", "error", err, "file-contents", string(roundCountData))
 	} else {
-		roundCount = roundCountUint64
+		roundCount.Store(roundCountUint64)
 	}
 
-	if roundCount < RoundCountMinimum {
-		roundCount = RoundCountMinimum
+	if roundCount.Load() < RoundCountMinimum {
+		roundCount.Store(RoundCountMinimum)
 	}
 
-	return roundCount
+	return roundCount.Load()
 }
 
 func StripANSI(str string) string {

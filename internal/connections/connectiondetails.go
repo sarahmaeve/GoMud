@@ -127,7 +127,7 @@ type ConnectionDetails struct {
 	handlerMutex      sync.Mutex
 	inputHandlerNames []string
 	inputHandlers     []InputHandler
-	inputDisabled     bool
+	inputDisabled     atomic.Bool
 	clientSettings    ClientSettings
 	heartbeat         *heartbeatManager
 }
@@ -311,9 +311,9 @@ func (cd *ConnectionDetails) SetState(state ConnectState) {
 
 func (cd *ConnectionDetails) InputDisabled(setTo ...bool) bool {
 	if len(setTo) > 0 {
-		cd.inputDisabled = setTo[0]
+		cd.inputDisabled.Store(setTo[0])
 	}
-	return cd.inputDisabled
+	return cd.inputDisabled.Load()
 }
 
 func NewConnectionDetails(connId ConnectionId, c net.Conn, wsC *websocket.Conn, config *HeartbeatConfig) *ConnectionDetails {
@@ -321,10 +321,9 @@ func NewConnectionDetails(connId ConnectionId, c net.Conn, wsC *websocket.Conn, 
 		config = &DefaultHeartbeatConfig
 	}
 	cd := &ConnectionDetails{
-		state:         Login,
-		connectionId:  connId,
-		inputDisabled: false,
-		conn:          c,
+		state:        Login,
+		connectionId: connId,
+		conn:         c,
 		wsConn:        wsC,
 		wsLock:        sync.Mutex{},
 		// Track client settings

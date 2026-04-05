@@ -14,3 +14,11 @@ func SetTestValidation(v Validation) {
 	configData.Validation.Validate()
 	configData.validated = true
 }
+
+// SetTestDataFilesPath sets the data files path for testing.
+// For testing only.
+func SetTestDataFilesPath(path string) {
+	configDataLock.Lock()
+	defer configDataLock.Unlock()
+	configData.FilePaths.DataFiles = ConfigString(path)
+}
