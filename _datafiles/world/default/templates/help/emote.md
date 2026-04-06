@@ -13,4 +13,4 @@ What others see:
 
 Here are some shortcut emotes that can be invoked with a single word:
 
-{{ $counter := 0 -}}{{ range $command, $output := . }}   ~{{ padRight 8 $command }}~ {{ if eq (mod $counter 6) 5 }}{{ printf "\n" }}{{ end }}{{ $counter = (add $counter 1) }}{{ end }}
+{{ $counter := 0 -}}{{ range $command, $output := . }}   ~{{ padRight 8 $command }}~ {{ if eq (mod $counter 6) 5 }}{{ printf "  \n" }}{{ end }}{{ $counter = (add $counter 1) }}{{ end }}
