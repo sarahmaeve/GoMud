@@ -3,10 +3,6 @@ package inputhandlers
 import (
 	"errors"
 	"fmt"
-	"net/mail"
-	"strings"
-	"unicode/utf8"
-
 	"github.com/GoMudEngine/GoMud/internal/configs"
 	"github.com/GoMudEngine/GoMud/internal/connections"
 	"github.com/GoMudEngine/GoMud/internal/events"
@@ -14,6 +10,8 @@ import (
 	"github.com/GoMudEngine/GoMud/internal/templates"
 	"github.com/GoMudEngine/GoMud/internal/term"
 	"github.com/GoMudEngine/GoMud/internal/users"
+	"net/mail"
+	"strings"
 )
 
 var (
@@ -200,20 +198,10 @@ func CreatePromptHandler(steps []*PromptStep, onComplete CompletionFunc) connect
 		// Input Buffering and Echo
 		if !clientInput.EnterPressed {
 
-			if clientInput.BSPressed && len(clientInput.Buffer) > 0 {
-
-				// Handle Backspace - properly handle UTF-8 multi-byte characters
-				bufferStr := string(clientInput.Buffer)
-				if len(bufferStr) > 0 {
-					// Find the start of the last rune
-					_, size := utf8.DecodeLastRune(clientInput.Buffer)
-					if size > 0 {
-						clientInput.Buffer = clientInput.Buffer[:len(clientInput.Buffer)-size]
-					}
-				}
-				//connections.SendTo([]byte{term.ASCII_BACKSPACE, term.ASCII_SPACE, term.ASCII_BACKSPACE}, clientInput.ConnectionId)
-
-			} else if !clientInput.BSPressed && len(clientInput.DataIn) > 0 && clientInput.DataIn[0] >= 32 {
+			if clientInput.BSPressed {
+				// Backspace already handled by CleanserInputHandler (echo + buffer removal).
+				// No action needed here.
+			} else if len(clientInput.DataIn) > 0 && clientInput.DataIn[0] >= 32 {
 
 				// Handle printable characters
 				//clientInput.Buffer = append(clientInput.Buffer, clientInput.DataIn...)
