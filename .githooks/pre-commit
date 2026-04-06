@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+#
+# Pre-commit hook for GoMud
+# Enforces: gofmt, go vet, go test -race
+# Install with: make setup-hooks
+#
+set -euo pipefail
+
+# Step A: Early exit if no Go files are staged
+staged_go_files=$(git diff --cached --name-only --diff-filter=ACMR -- '*.go' || true)
+if [ -z "$staged_go_files" ]; then
+    exit 0
+fi
+
+echo "=== pre-commit: checking Go files ==="
+
+has_errors=0
+
+# Step B: Auto-format staged Go files
+# Only auto-fix fully-staged files; warn on partially-staged ones.
+unformatted=$(echo "$staged_go_files" | xargs gofmt -l 2>/dev/null || true)
+if [ -n "$unformatted" ]; then
+    for file in $unformatted; do
+        # Check if file has unstaged changes (partially staged)
+        if git diff --name-only -- "$file" | grep -q "^${file}$"; then
+            echo "ERROR: $file is not formatted and has unstaged changes."
+            echo "  Run 'gofmt -w $file' and re-stage manually."
+            has_errors=1
+        else
+            # Fully staged — safe to auto-fix
+            gofmt -w "$file"
+            git add "$file"
+            echo "  Auto-formatted and re-staged: $file"
+        fi
+    done
+fi
+
+if [ "$has_errors" -ne 0 ]; then
+    echo ""
+    echo "FAILED: Some files need manual formatting (see above)."
+    echo "Bypass with: git commit --no-verify (not recommended)"
+    exit 1
+fi
+
+# Step C: go vet (needs full module for cross-package type info)
+echo "Running go vet..."
+if ! go vet -composites=false ./... 2>&1; then
+    echo ""
+    echo "FAILED: go vet found issues."
+    echo "Bypass with: git commit --no-verify (not recommended)"
+    exit 1
+fi
+
+# Step D: Test file presence warning
+source_files=""
+test_files=""
+for file in $staged_go_files; do
+    if [[ "$file" == *_test.go ]]; then
+        test_files="$test_files $file"
+    else
+        source_files="$source_files $file"
+    fi
+done
+
+if [ -n "$source_files" ] && [ -z "$test_files" ]; then
+    echo ""
+    echo "Warning: Go source files staged without any test files. Consider adding tests."
+fi
+
+# Step E: go test -race
+echo "Running go test -race..."
+if ! go test -race ./... 2>&1; then
+    echo ""
+    echo "FAILED: tests failed."
+    echo "Bypass with: git commit --no-verify (not recommended)"
+    exit 1
+fi
+
+echo "=== pre-commit: all checks passed ==="

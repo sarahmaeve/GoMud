@@ -83,6 +83,7 @@ When analyzing, reviewing, or writing Go code in this project, always use the av
 
 ## Git Workflow
 
+- **Local hooks:** Run `make setup-hooks` after cloning to enable pre-commit hooks (`.githooks/`). The hook enforces `gofmt`, `go vet`, `go test -race`, and warns on commits without test files.
 - **Fork development:** Create feature/fix branches from our `master`, develop and test, merge to `master` via PR on `sarahmaeve/GoMud`.
 - **Upstream contributions:** To send a fix to `GoMudEngine/GoMud`:
   1. **First, merge the PR to our fork's master.** The fix must land on our stable branch before cherry-picking to upstream.

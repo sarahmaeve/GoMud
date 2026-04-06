@@ -106,6 +106,12 @@ shell:
 # Local code run/test
 #
 #
+.PHONY: setup-hooks
+setup-hooks:  ### Configure git to use project hooks from .githooks/
+	@chmod +x .githooks/*
+	@git config core.hooksPath .githooks
+	@echo "Git hooks active. Using .githooks/ directory."
+
 .PHONY: validate
 validate: fmtcheck vet
 
