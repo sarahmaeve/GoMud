@@ -18,7 +18,7 @@ import (
 // setupTestRoom creates a template room on disk and an in-memory
 // persistence store. Returns the room ID and a cleanup function.
 // The caller must call resetRoomManager() before calling this.
-func setupTestRoom(t *testing.T, roomId int, zone string, tpl Room) {
+func setupTestRoom(t *testing.T, roomId int, zone string, tpl *Room) {
 	t.Helper()
 
 	tmp := t.TempDir()
@@ -28,7 +28,7 @@ func setupTestRoom(t *testing.T, roomId int, zone string, tpl Room) {
 
 	tpl.RoomId = roomId
 	tpl.Zone = zone
-	require.NoError(t, SaveRoomTemplate(tpl))
+	require.NoError(t, SaveRoomTemplate(*tpl))
 
 	s, err := persistence.Open("file::memory:?cache=shared")
 	require.NoError(t, err)
@@ -53,7 +53,7 @@ func TestSaveRoomInstance_EmbeddedFieldDiff(t *testing.T) {
 			Description: "Original description.",
 		},
 	}
-	setupTestRoom(t, 800, "testzone", tpl)
+	setupTestRoom(t, 800, "testzone", &tpl)
 
 	// Load the room and modify a RoomState field.
 	loaded := LoadRoomInstance(800)
@@ -98,7 +98,7 @@ func TestSaveRoomInstance_MultipleEmbeddedDiffs(t *testing.T) {
 			},
 		},
 	}
-	setupTestRoom(t, 801, "testzone", tpl)
+	setupTestRoom(t, 801, "testzone", &tpl)
 
 	loaded := LoadRoomInstance(801)
 	require.NotNil(t, loaded)
@@ -145,7 +145,7 @@ func TestSaveRoomInstance_TemplateOnlyRoom_NoOverlay(t *testing.T) {
 			Description: "Should produce no overlay.",
 		},
 	}
-	setupTestRoom(t, 802, "testzone", tpl)
+	setupTestRoom(t, 802, "testzone", &tpl)
 
 	loaded := LoadRoomInstance(802)
 	require.NotNil(t, loaded)
@@ -165,6 +165,7 @@ func TestSaveRoomInstance_TemplateOnlyRoom_NoOverlay(t *testing.T) {
 // and RoomState embeddings — all fields survive a round-trip and no
 // duplicate keys are produced.
 func TestYAMLRoundTrip_EmbeddedStructs(t *testing.T) {
+	t.Parallel()
 	original := Room{
 		RoomTemplate: RoomTemplate{
 			RoomId:      900,
@@ -230,7 +231,11 @@ func TestYAMLRoundTrip_EmbeddedStructs(t *testing.T) {
 	assert.Len(t, roundTripped.Items, 1)
 	assert.Equal(t, 10, roundTripped.Items[0].ItemId)
 	assert.Contains(t, roundTripped.Containers, "chest")
+	assert.Equal(t, 25, roundTripped.Containers["chest"].Gold)
 	assert.Len(t, roundTripped.Signs, 1)
+	assert.Equal(t, "hello", roundTripped.Signs[0].DisplayText)
+	assert.NotNil(t, roundTripped.LongTermDataStore)
+	assert.Len(t, roundTripped.LongTermDataStore, 1)
 
 	// Non-embedded fields
 	assert.Len(t, roundTripped.SpawnInfo, 1)

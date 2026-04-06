@@ -28,7 +28,7 @@ func resetRoomManager() {
 	roomManager.roomsWithUsers = make(map[int]int)
 	roomManager.roomsWithMobs = make(map[int]int)
 	roomManager.roomIdToFileCache = make(map[int]string)
-	userLookup = users.DefaultUserLookup()
+	SetUserLookup(users.DefaultUserLookup())
 }
 
 func TestMoveToRoom_NilUser_DoesNotPanic(t *testing.T) {
