@@ -292,6 +292,9 @@ func Listen(wg *sync.WaitGroup, webSocketHandler func(*websocket.Conn)) {
 
 	http.HandleFunc("/", serveTemplate)
 
+	// Health check endpoint for Docker/container probes
+	http.HandleFunc("GET /health", healthHandler)
+
 	// websocket upgrade
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 

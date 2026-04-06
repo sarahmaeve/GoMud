@@ -18,6 +18,9 @@ services:
       - type: volume
         source: log-volume
         target: /app/log
+      - type: volume
+        source: data-volume
+        target: /app/_datafiles
 
   busybox:
     container_name: "server-logs"
@@ -51,6 +54,7 @@ services:
 
 volumes:
   log-volume:
+  data-volume:
 
 networks:
   mud_network:
