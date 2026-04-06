@@ -268,6 +268,53 @@ func SaveRoomTemplate(roomTpl Room) error {
 	return nil
 }
 
+// collectInstanceFields walks the struct fields of r, comparing each
+// exported field against the corresponding template field. Fields that
+// differ from the template are added to result keyed by their YAML tag
+// name. Anonymous (embedded) struct fields are recursed into so that
+// promoted fields from RoomTemplate and RoomState are handled correctly.
+func collectInstanceFields(rVal, tplVal reflect.Value, t reflect.Type, result map[string]interface{}) {
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+
+		// Recurse into embedded (anonymous) structs so that promoted
+		// fields are compared individually rather than as a single blob.
+		if field.Anonymous && field.Type.Kind() == reflect.Struct {
+			collectInstanceFields(rVal.Field(i), tplVal.Field(i), field.Type, result)
+			continue
+		}
+
+		// Skip unexported fields.
+		if field.PkgPath != "" {
+			continue
+		}
+
+		yamlTag := field.Tag.Get("yaml")
+		if yamlTag == `-` {
+			continue
+		}
+
+		if field.Tag.Get("instance") == "skip" {
+			continue
+		}
+
+		rField := rVal.Field(i)
+		tplField := tplVal.Field(i)
+
+		if reflect.DeepEqual(rField.Interface(), tplField.Interface()) {
+			continue
+		}
+
+		tagParts := strings.Split(yamlTag, ",")
+		fieldName := tagParts[0]
+		if fieldName == `` || fieldName == `omitempty` || fieldName == `flow` {
+			fieldName = field.Name
+		}
+
+		result[fieldName] = rField.Interface()
+	}
+}
+
 // See: D. SAVING ROOMS INSTANCES
 func SaveRoomInstance(r Room) error {
 
@@ -285,38 +332,7 @@ func SaveRoomInstance(r Room) error {
 	t := reflect.TypeOf(r)
 
 	instanceSaveData := make(map[string]interface{})
-
-	for i := 0; i < t.NumField(); i++ {
-		field := t.Field(i)
-		if field.PkgPath != "" {
-			continue
-		}
-
-		yamlTag := field.Tag.Get("yaml")
-		if yamlTag == `-` {
-			continue
-		}
-
-		if field.Tag.Get("instance") == "skip" {
-			continue
-		}
-
-		rVal2 := rVal.Field(i)
-		tplVal2 := tplVal.Field(i)
-
-		if reflect.DeepEqual(rVal2.Interface(), tplVal2.Interface()) {
-			continue
-		}
-
-		tagParts := strings.Split(yamlTag, ",")
-		fieldName := tagParts[0]
-		if fieldName == `` || fieldName == `omitempty` || fieldName == `flow` {
-			fieldName = field.Name
-		}
-
-		instanceSaveData[fieldName] = rVal2.Interface()
-
-	}
+	collectInstanceFields(rVal, tplVal, t, instanceSaveData)
 
 	if err := requireStore(); err != nil {
 		return err
