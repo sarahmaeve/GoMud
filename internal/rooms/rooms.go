@@ -102,6 +102,10 @@ func NewRoom(zone string) *Room {
 			MapSymbol:   ``,
 			Exits:       make(map[string]exit.RoomExit),
 		},
+		RoomState: RoomState{
+			Containers:        make(map[string]Container),
+			LongTermDataStore: make(map[string]any),
+		},
 		players:       []int{},
 		visitors:      make(map[VisitorType]map[int]uint64),
 		tempDataStore: make(map[string]any),
@@ -119,6 +123,10 @@ func NewEmptyRoom() *Room {
 			Description: "This is an empty room that was never given a description.",
 			MapSymbol:   ``,
 			Exits:       make(map[string]exit.RoomExit),
+		},
+		RoomState: RoomState{
+			Containers:        make(map[string]Container),
+			LongTermDataStore: make(map[string]any),
 		},
 		players:       []int{},
 		visitors:      make(map[VisitorType]map[int]uint64),
@@ -821,7 +829,7 @@ func (r *Room) RemoveMob(mobInstanceId int) {
 	}
 }
 
-func (r *RoomState) AddItem(item items.Item, stash bool) {
+func (r *Room) AddItem(item items.Item, stash bool) {
 
 	item.Validate()
 
@@ -922,7 +930,7 @@ func (r *Room) GetRandomExit() (exitName string, roomId int) {
 	return ``, 0
 }
 
-func (r *RoomState) RemoveItem(i items.Item, stash bool) {
+func (r *Room) RemoveItem(i items.Item, stash bool) {
 
 	if stash {
 		for j := len(r.Stash) - 1; j >= 0; j-- {
@@ -942,7 +950,7 @@ func (r *RoomState) RemoveItem(i items.Item, stash bool) {
 
 }
 
-func (r *RoomState) GetAllFloorItems(stash bool) []items.Item {
+func (r *Room) GetAllFloorItems(stash bool) []items.Item {
 
 	found := []items.Item{}
 

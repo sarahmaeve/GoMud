@@ -1,32 +1,33 @@
 package rooms
 
 import (
-	"errors"
-
 	"github.com/GoMudEngine/GoMud/internal/users"
 )
 
-// userLookup is the active-user lookup backend for the rooms package.
-// Instead of importing users and calling the package-level functions
-// directly, rooms resolves users through this interface. This decouples
-// the runtime dependency and enables test stubs.
-//
-// Must be set via SetUserLookup before any room operations that need
-// to resolve users. The server main package initializes this during startup.
-var userLookup users.UserLookup
+// UserLookup is the minimal read-only interface for resolving active
+// users by their user ID. Defined in rooms (the consumer) per Go
+// convention: interfaces belong to the package that uses them.
+type UserLookup interface {
+	GetByUserId(userId int) *users.UserRecord
+}
+
+// Compile-time check: *users.ActiveUsers must satisfy UserLookup.
+var _ UserLookup = (*users.ActiveUsers)(nil)
+
+// userLookup is the active-user lookup backend. Set once during
+// startup via SetUserLookup before any concurrent room operations.
+// Not guarded by a mutex because the write happens-before any reads
+// (single-threaded initialization in main.go).
+var userLookup UserLookup
 
 // SetUserLookup installs the user lookup backend. Must be called
 // exactly once during server startup, before any room operations that
 // resolve users (e.g., MoveToRoom, SendText to players).
-func SetUserLookup(ul users.UserLookup) {
-	userLookup = ul
-}
-
-// requireUserLookup returns a descriptive error if the user lookup has
-// not been installed, rather than producing a nil pointer panic.
-func requireUserLookup() error {
-	if userLookup == nil {
-		return errors.New("rooms: user lookup not initialized (call rooms.SetUserLookup first)")
+// Panics if ul is nil — failing to provide a required dependency is a
+// programmer error and should be caught at startup.
+func SetUserLookup(ul UserLookup) {
+	if ul == nil {
+		panic("rooms: SetUserLookup called with nil")
 	}
-	return nil
+	userLookup = ul
 }
