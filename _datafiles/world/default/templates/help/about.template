@@ -1,12 +1,12 @@
-<ansi fg="black-bold">.:</ansi> <ansi fg="magenta">About </ansi><ansi fg="command">GoMud</ansi>
+<ansi fg="black-bold">.:</ansi> <ansi fg="magenta">About </ansi><ansi fg="command">{{ branding "MudName" }}</ansi>
 
-<ansi fg="command">GoMud</ansi> is an open source <ansi fg="229">MUD</ansi> (Multi-user Dungeon) game world and library.
+{{ branding "Description" }}
 
-The <ansi fg="command">GoMud</ansi> engine ships with a default world to play in, but can be overwritten
+The <ansi fg="command">{{ branding "MudName" }}</ansi> engine ships with a default world to play in, but can be overwritten
 or modified to build your own world using built-in tools.
 
-<ansi fg="black-bold">Join the <ansi fg="command">GoMud</ansi> Discord Server:</ansi>   <ansi fg="51">discord.gg/cjukKvQWyy</ansi>
-<ansi fg="black-bold">Find out more (or get the code):</ansi> <ansi fg="51">github.com/GoMudEngine/GoMud</ansi>
+<ansi fg="black-bold">Join the <ansi fg="command">{{ branding "MudName" }}</ansi> Discord Server:</ansi>   <ansi fg="51">{{ branding "DiscordURL" }}</ansi>
+<ansi fg="black-bold">Find out more (or get the code):</ansi> <ansi fg="51">{{ branding "URL" }}</ansi>
 
 <ansi fg="6">  .--.      .-'.      .--.      .--.      .--.      .--.      .`-.      .--.
 <ansi fg="187">:::::.</ansi>\<ansi fg="187">::::::::.</ansi>\<ansi fg="187">::::::::.</ansi>\<ansi fg="187">::::::::.</ansi>\<ansi fg="187">::::::::.</ansi>\<ansi fg="187">::::::::.</ansi>\<ansi fg="187">::::::::.</ansi>\<ansi fg="187">::::::::.</ansi>\<ansi fg="187"></ansi>

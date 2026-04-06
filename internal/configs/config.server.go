@@ -2,6 +2,12 @@ package configs
 
 type Server struct {
 	MudName         ConfigString      `yaml:"MudName"`         // Name of the MUD
+	Tagline         ConfigString      `yaml:"Tagline"`         // Short tagline shown on login splash
+	Description     ConfigString      `yaml:"Description"`     // Longer description for about page
+	URL             ConfigString      `yaml:"URL"`             // Project or server URL
+	DiscordURL      ConfigString      `yaml:"DiscordURL"`      // Community Discord invite link
+	AdminName       ConfigString      `yaml:"AdminName"`       // Server operator name (optional)
+	AdminEmail      ConfigString      `yaml:"AdminEmail"`      // Contact email (optional)
 	CurrentVersion  ConfigString      `yaml:"CurrentVersion"`  // Current version this mud has been updated to
 	Seed            ConfigSecret      `yaml:"Seed"`            // Seed that may be used for generating content
 	MaxCPUCores     ConfigInt         `yaml:"MaxCPUCores"`     // How many cores to allow for multi-core operations
@@ -18,6 +24,25 @@ func (s *Server) Validate() {
 	// Ignore Motd
 	// Ignore NextRoomId
 	// Ignore Locked
+
+	if s.Tagline == `` {
+		s.Tagline = `an open source MUD Library written in Go`
+	}
+
+	if s.Description == `` {
+		s.Description = `GoMud is an open source MUD (Multi-user Dungeon) game world and library.`
+	}
+
+	if s.URL == `` {
+		s.URL = `github.com/GoMudEngine/GoMud`
+	}
+
+	if s.DiscordURL == `` {
+		s.DiscordURL = `discord.gg/cjukKvQWyy`
+	}
+
+	// Ignore AdminName
+	// Ignore AdminEmail
 
 	if s.Seed == `` {
 		s.Seed = `Mud` // default
