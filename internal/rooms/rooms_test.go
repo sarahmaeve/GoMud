@@ -98,7 +98,7 @@ func TestRoom_FindCorpse(t *testing.T) {
 func TestFindNoun(t *testing.T) {
 	// Create a room with various noun mappings (including aliases).
 	r := &Room{
-		Nouns: map[string]string{
+		RoomTemplate: RoomTemplate{Nouns: map[string]string{
 			"torch":            "a fiery torch",
 			"torchAlias":       ":torch", // alias -> :torch means "torch"
 			"lamp":             "an illuminating lamp",
@@ -113,7 +113,7 @@ func TestFindNoun(t *testing.T) {
 			"rocky island":     ":island",
 			"feet":             ":hands",
 			"hands":            ":feet",
-		},
+		}},
 	}
 
 	// Table-driven tests.

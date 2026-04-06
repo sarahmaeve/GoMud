@@ -63,34 +63,14 @@ const (
 )
 
 type Room struct {
-	//mutex
-	RoomId            int                               `yaml:"roomid"`                              // a unique numeric index of the room. Also the filename.
-	Zone              string                            `yaml:"zone"`                                // zone is a way to partition rooms into groups. Also into folders.
-	MusicFile         string                            `yaml:"musicfile,omitempty"`                 // background music to play when in this room
-	IsBank            bool                              `yaml:"isbank,omitempty"`                    // Is this a bank room? If so, players can deposit/withdraw gold here.
-	IsStorage         bool                              `yaml:"isstorage,omitempty"`                 // Is this a storage room? If so, players can add/remove objects here.
-	IsCharacterRoom   bool                              `yaml:"ischaracterroom,omitempty"`           // Is this a room where characters can create new characters to swap between them?
-	Title             string                            `yaml:"title"`                               // Title shown to the user
-	Description       string                            `yaml:"description"`                         // Description shown to the user
-	MapSymbol         string                            `yaml:"mapsymbol,omitempty"`                 // The symbol to use when generating a map of the zone
-	MapLegend         string                            `yaml:"maplegend,omitempty"`                 // The text to display in the legend for this room. Should be one word.
-	Biome             string                            `yaml:"biome,omitempty"`                     // The biome of the room. Used for weather generation.
-	Containers        map[string]Container              `yaml:"containers,omitempty"`                // If this room has a chest, what is in it?
-	Exits             map[string]exit.RoomExit          `yaml:"exits"`                               // Exits to other rooms
-	ExitsTemp         map[string]exit.TemporaryRoomExit `yaml:"-"`                                   // Temporary exits that will be removed after a certain time. Don't bother saving on sever shutting down.
-	Nouns             map[string]string                 `yaml:"nouns,omitempty"`                     // Interesting nouns to highlight in the room or reveal on succesful searches.
-	Items             []items.Item                      `yaml:"items,omitempty"`                     // Items on the floor
-	Stash             []items.Item                      `yaml:"stash,omitempty"`                     // list of items in the room that are not visible to players
-	Corpses           []Corpse                          `yaml:"-"`                                   // Any corpses laying around from recent deaths
-	Gold              int                               `yaml:"gold,omitempty"`                      // How much gold is on the ground?
-	SpawnInfo         []SpawnInfo                       `yaml:"spawninfo,omitempty" instance:"skip"` // key is creature ID, value is spawn chance
-	SkillTraining     map[string]TrainingRange          `yaml:"skilltraining,omitempty"`             // list of skills that can be trained in this room
-	Signs             []Sign                            `yaml:"sign,omitempty"`                      // list of scribbles in the room
-	IdleMessages      []string                          `yaml:"idlemessages,omitempty" `             // list of messages that can be displayed to players in the room
-	LastIdleMessage   uint8                             `yaml:"-"`                                   // index of the last idle message displayed
-	LongTermDataStore map[string]any                    `yaml:"longtermdatastore,omitempty"`         // Long term data store for the room
-	Mutators          mutators.MutatorList              `yaml:"mutators,omitempty"`                  // mutators this room spawns with.
-	Pvp               bool                              `yaml:"pvp,omitempty"`                       // if config pvp is set to `limited`, uses this value
+	RoomTemplate `yaml:",inline"` // Static template data (YAML-loaded, rarely changes)
+	RoomState    `yaml:",inline"` // Mutable instance data (floor items, gold, containers, etc.)
+
+	SpawnInfo       []SpawnInfo                       `yaml:"spawninfo,omitempty" instance:"skip"` // key is creature ID, value is spawn chance
+	ExitsTemp       map[string]exit.TemporaryRoomExit `yaml:"-"`                                   // Temporary exits that will be removed after a certain time. Don't bother saving on sever shutting down.
+	Corpses         []Corpse                          `yaml:"-"`                                   // Any corpses laying around from recent deaths
+	LastIdleMessage uint8                             `yaml:"-"`                                   // index of the last idle message displayed
+
 	// Unexported/private
 	players       []int                          // list of user IDs currently in the room
 	mobs          []int                          // list of mob instance IDs currently in the room. Does not get saved.
@@ -114,12 +94,14 @@ type TrainingRange struct {
 
 func NewRoom(zone string) *Room {
 	r := &Room{
-		RoomId:        GetNextRoomId(),
-		Zone:          zone,
-		Title:         "An empty room.",
-		Description:   "This is an empty room that was never given a description.",
-		MapSymbol:     ``,
-		Exits:         make(map[string]exit.RoomExit),
+		RoomTemplate: RoomTemplate{
+			RoomId:      GetNextRoomId(),
+			Zone:        zone,
+			Title:       "An empty room.",
+			Description: "This is an empty room that was never given a description.",
+			MapSymbol:   ``,
+			Exits:       make(map[string]exit.RoomExit),
+		},
 		players:       []int{},
 		visitors:      make(map[VisitorType]map[int]uint64),
 		tempDataStore: make(map[string]any),
@@ -132,10 +114,12 @@ func NewRoom(zone string) *Room {
 
 func NewEmptyRoom() *Room {
 	r := &Room{
-		Title:         "An empty room.",
-		Description:   "This is an empty room that was never given a description.",
-		MapSymbol:     ``,
-		Exits:         make(map[string]exit.RoomExit),
+		RoomTemplate: RoomTemplate{
+			Title:       "An empty room.",
+			Description: "This is an empty room that was never given a description.",
+			MapSymbol:   ``,
+			Exits:       make(map[string]exit.RoomExit),
+		},
 		players:       []int{},
 		visitors:      make(map[VisitorType]map[int]uint64),
 		tempDataStore: make(map[string]any),
@@ -143,7 +127,7 @@ func NewEmptyRoom() *Room {
 	return r
 }
 
-func (r *Room) IsEphemeral() bool {
+func (r *RoomTemplate) IsEphemeral() bool {
 	return r.RoomId >= ephemeralRoomIdMinimum
 }
 
@@ -398,7 +382,7 @@ func (r *Room) GetTempData(key string) any {
 	return nil
 }
 
-func (r *Room) GetScript() string {
+func (r *RoomTemplate) GetScript() string {
 
 	scriptPath := r.GetScriptPath()
 
@@ -412,7 +396,7 @@ func (r *Room) GetScript() string {
 	return ``
 }
 
-func (r *Room) GetScriptPath() string {
+func (r *RoomTemplate) GetScriptPath() string {
 	// Load any script for the room
 	return strings.Replace(configs.GetFilePathsConfig().DataFiles.String()+`/rooms/`+r.Filepath(), `.yaml`, `.js`, 1)
 }
@@ -837,7 +821,7 @@ func (r *Room) RemoveMob(mobInstanceId int) {
 	}
 }
 
-func (r *Room) AddItem(item items.Item, stash bool) {
+func (r *RoomState) AddItem(item items.Item, stash bool) {
 
 	item.Validate()
 
@@ -938,7 +922,7 @@ func (r *Room) GetRandomExit() (exitName string, roomId int) {
 	return ``, 0
 }
 
-func (r *Room) RemoveItem(i items.Item, stash bool) {
+func (r *RoomState) RemoveItem(i items.Item, stash bool) {
 
 	if stash {
 		for j := len(r.Stash) - 1; j >= 0; j-- {
@@ -958,7 +942,7 @@ func (r *Room) RemoveItem(i items.Item, stash bool) {
 
 }
 
-func (r *Room) GetAllFloorItems(stash bool) []items.Item {
+func (r *RoomState) GetAllFloorItems(stash bool) []items.Item {
 
 	found := []items.Item{}
 
@@ -2245,16 +2229,16 @@ func (r *Room) GetMapSymbol() string {
 	return r.MapSymbol
 }
 
-func (r *Room) Filename() string {
+func (r *RoomTemplate) Filename() string {
 	return fmt.Sprintf("%d.yaml", GetOriginalRoom(r.RoomId))
 }
 
-func (r *Room) Filepath() string {
+func (r *RoomTemplate) Filepath() string {
 	zone := ZoneNameSanitize(r.Zone)
 	return util.FilePath(zone, `/`, r.Filename())
 }
 
-func (r *Room) GetBiome() *BiomeInfo {
+func (r *RoomTemplate) GetBiome() *BiomeInfo {
 
 	if r.Biome == `` {
 		if r.Zone != `` {

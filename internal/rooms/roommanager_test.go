@@ -33,7 +33,7 @@ func TestMoveToRoom_NilUser_DoesNotPanic(t *testing.T) {
 	resetRoomManager()
 
 	// Add a target room so LoadRoom won't return nil for toRoomId
-	targetRoom := &Room{RoomId: 100, Zone: "testzone"}
+	targetRoom := &Room{RoomTemplate: RoomTemplate{RoomId: 100, Zone: "testzone"}}
 	roomManager.rooms[100] = targetRoom
 
 	// Call with a userId that does not exist in userManager
@@ -61,10 +61,14 @@ func TestSaveRoomTemplate_RoomNotInMemory_DoesNotPanic(t *testing.T) {
 
 	// Room 500 is NOT in roomManager.rooms — triggers the nil lookup at line 185.
 	roomTpl := Room{
-		RoomId: 500,
-		Zone:   "testzone",
-		Containers: map[string]Container{
-			"chest": {Gold: 10},
+		RoomTemplate: RoomTemplate{
+			RoomId: 500,
+			Zone:   "testzone",
+		},
+		RoomState: RoomState{
+			Containers: map[string]Container{
+				"chest": {Gold: 10},
+			},
 		},
 	}
 
@@ -98,10 +102,12 @@ func TestLoadRoomInstance_CorruptOverlay_NotDeletedOnNextSave(t *testing.T) {
 	roomManager.zones["testzone"] = &ZoneConfig{RoomId: 700}
 
 	tpl := Room{
-		RoomId:      700,
-		Zone:        "testzone",
-		Title:       "Regression Room",
-		Description: "For H1.",
+		RoomTemplate: RoomTemplate{
+			RoomId:      700,
+			Zone:        "testzone",
+			Title:       "Regression Room",
+			Description: "For H1.",
+		},
 	}
 	require.NoError(t, SaveRoomTemplate(tpl))
 
