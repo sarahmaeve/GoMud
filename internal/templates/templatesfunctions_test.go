@@ -203,3 +203,41 @@ func TestStringOr(t *testing.T) {
 		})
 	}
 }
+
+func TestBranding(t *testing.T) {
+	t.Parallel()
+
+	// The branding function reads from configs.GetServerConfig().
+	// Without explicit config loading, Validate() fills in defaults
+	// for empty fields — this is the fresh-install behavior.
+	brandingFn := funcMap["branding"].(func(string) string)
+
+	tests := []struct {
+		name     string
+		field    string
+		wantNon  string // non-empty expected value (from Validate defaults)
+		wantZero bool   // expect empty string
+	}{
+		{"MudName returns empty on fresh config", "MudName", "", true},
+		{"Tagline returns default", "Tagline", "an open source MUD Library written in Go", false},
+		{"Description returns default", "Description", "GoMud is an open source MUD", false},
+		{"URL returns default", "URL", "github.com/GoMudEngine/GoMud", false},
+		{"DiscordURL returns default", "DiscordURL", "discord.gg/cjukKvQWyy", false},
+		{"AdminName returns empty", "AdminName", "", true},
+		{"AdminEmail returns empty", "AdminEmail", "", true},
+		{"unknown field returns empty", "NonExistent", "", true},
+		{"empty field name returns empty", "", "", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := brandingFn(tt.field)
+			if tt.wantZero {
+				assert.Empty(t, got, "expected empty string for field %q", tt.field)
+			} else {
+				assert.Contains(t, got, tt.wantNon,
+					"branding(%q) should contain %q", tt.field, tt.wantNon)
+			}
+		})
+	}
+}
