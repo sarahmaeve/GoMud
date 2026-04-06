@@ -243,7 +243,7 @@ func GetDetails(r *Room, user *users.UserRecord, tinymap ...[]string) RoomTempla
 
 			renderFlags := append([]characters.NameRenderFlag{}, nameFlags...)
 
-			player := users.GetByUserId(playerId)
+			player := userLookup.GetByUserId(playerId)
 			if player != nil {
 
 				if player.Character.HasBuffFlag(buffs.Hidden) { // Don't show them if they are sneaking
@@ -417,7 +417,7 @@ func GetDetails(r *Room, user *users.UserRecord, tinymap ...[]string) RoomTempla
 				allNames := []string{}
 
 				for userId, _ := range r.Visitors(VisitorUser) {
-					if u := users.GetByUserId(userId); u != nil {
+					if u := userLookup.GetByUserId(userId); u != nil {
 						allNames = append(allNames, u.Character.Name)
 					}
 				}

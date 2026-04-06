@@ -460,7 +460,7 @@ func (r *Room) ApplyBuffIdToPlayers(buffIds []int, source string) {
 
 	for _, uid := range r.GetPlayers() {
 
-		if u := users.GetByUserId(uid); u != nil {
+		if u := userLookup.GetByUserId(uid); u != nil {
 
 			for _, bId := range buffIds {
 				if u.Character.HasBuff(bId) {
@@ -1204,7 +1204,7 @@ func (r *Room) GetPlayers(findTypes ...FindFlag) []int {
 
 	for _, userId := range r.players {
 
-		user := users.GetByUserId(userId)
+		user := userLookup.GetByUserId(userId)
 		if user == nil {
 			continue
 		}
@@ -1279,7 +1279,7 @@ func (r *Room) ArePlayersAttacking(userId int) bool {
 		if playerId == userId {
 			continue
 		}
-		if u := users.GetByUserId(playerId); u != nil {
+		if u := userLookup.GetByUserId(playerId); u != nil {
 			if u.Character.Aggro != nil && (userId == 0 || u.Character.Aggro.UserId == userId) {
 				return true
 			}
@@ -1414,7 +1414,7 @@ func (r *Room) FindByPetName(searchName string) (playerId int) {
 	petNames := []string{}
 
 	for _, uId := range r.GetPlayers(FindHasPet) {
-		if u := users.GetByUserId(uId); u != nil {
+		if u := userLookup.GetByUserId(uId); u != nil {
 			petOwners[u.Character.Pet.Name] = u.UserId
 			petNames = append(petNames, u.Character.Pet.Name)
 		}
@@ -1457,7 +1457,7 @@ func (r *Room) findPlayerByName(searchName string, findTypes ...FindFlag) (int, 
 	// are they looking at a player?
 	playerLookup := map[string]int{}
 	for _, uId := range r.GetPlayers(findTypes...) {
-		u := users.GetByUserId(uId)
+		u := userLookup.GetByUserId(uId)
 		playerLookup[u.Character.Name] = u.UserId
 		namesInRoom = append(namesInRoom, u.Character.Name)
 	}
@@ -1893,7 +1893,7 @@ func (r *Room) isInRoom(mobName string, userName string) bool {
 
 	if userName != `` {
 		for _, userId := range r.players {
-			if user := users.GetByUserId(userId); user != nil {
+			if user := userLookup.GetByUserId(userId); user != nil {
 				if strings.HasPrefix(user.Character.Name, userName) {
 					return true
 				}
@@ -1972,7 +1972,7 @@ func (r *Room) findUserExit(userId int, userName string) string {
 				continue
 			}
 
-			if visitorUser := users.GetByUserId(uId); visitorUser != nil {
+			if visitorUser := userLookup.GetByUserId(uId); visitorUser != nil {
 
 				if len(userName) > 0 && !strings.HasPrefix(visitorUser.Character.Name, userName) {
 					continue
@@ -2133,7 +2133,7 @@ func (r *Room) RepeatSpawnItem(itemId int, roundFrequency int, containerName ...
 	// If someone is carrying it, abort
 	for _, userId := range r.GetPlayers() {
 
-		if user := users.GetByUserId(userId); user != nil {
+		if user := userLookup.GetByUserId(userId); user != nil {
 
 			for _, item := range user.Character.GetAllBackpackItems() {
 				if item.ItemId == itemId {
