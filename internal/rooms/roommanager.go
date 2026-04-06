@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/GoMudEngine/GoMud/internal/buffs"
 	"github.com/GoMudEngine/GoMud/internal/configs"
 	"github.com/GoMudEngine/GoMud/internal/events"
 	"github.com/GoMudEngine/GoMud/internal/exit"
@@ -314,23 +313,6 @@ func MoveToRoom(userId int, toRoomId int, isSpawn ...bool) error {
 	newRoom.MarkVisited(userId, VisitorUser)
 
 	//
-	// Apply any mutators from the zone or room
-	// This will only add mutators that the player
-	// doesn't already have.
-	//
-	for mut := range newRoom.ActiveMutators {
-		spec := mut.GetSpec()
-		if len(spec.PlayerBuffIds) == 0 {
-			continue
-		}
-		for _, buffId := range spec.PlayerBuffIds {
-			if !user.Character.HasBuff(buffId) {
-				user.AddBuff(buffId, `area`)
-			}
-		}
-	}
-
-	//
 	// If they are moving into an ephemeral room
 	//
 	if IsEphemeralRoomId(newRoom.RoomId) {
@@ -355,10 +337,6 @@ func MoveToRoom(userId int, toRoomId int, isSpawn ...bool) error {
 		}
 	}
 
-	//
-	// Done adding mutator buffs
-	//
-
 	user.Character.RoomId = newRoom.RoomId
 	user.Character.Zone = newRoom.Zone
 	user.Character.RememberRoom(newRoom.RoomId) // Mark this room as remembered.
@@ -370,7 +348,7 @@ func MoveToRoom(userId int, toRoomId int, isSpawn ...bool) error {
 		UserId:     userId,
 		FromRoomId: fromRoomId,
 		ToRoomId:   newRoom.RoomId,
-		Unseen:     user.Character.HasBuffFlag(buffs.Hidden),
+		Unseen:     user.Character.HasBuffFlag(flagHidden),
 	})
 
 	return nil

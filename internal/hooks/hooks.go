@@ -11,6 +11,7 @@ func RegisterListeners() {
 	events.RegisterListener(events.Buff{}, ApplyBuffs)
 
 	// RoomChange Listeners
+	events.RegisterListener(events.RoomChange{}, ApplyMutatorBuffs, events.First)
 	events.RegisterListener(events.RoomChange{}, LocationMusicChange)
 	events.RegisterListener(events.RoomChange{}, CleanupEphemeralRooms)
 	events.RegisterListener(events.RoomChange{}, SpawnGuide)
