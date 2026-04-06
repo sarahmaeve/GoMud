@@ -17,7 +17,6 @@ import (
 	"github.com/GoMudEngine/GoMud/internal/fileloader"
 	"github.com/GoMudEngine/GoMud/internal/mobs"
 	"github.com/GoMudEngine/GoMud/internal/mudlog"
-	"github.com/GoMudEngine/GoMud/internal/users"
 	"github.com/GoMudEngine/GoMud/internal/util"
 )
 
@@ -177,11 +176,11 @@ func RoomMaintenance() []int {
 				for _, userId := range roomPlayers {
 					for _, sign := range prunedSigns {
 						if sign.VisibleUserId == 0 {
-							if u := users.GetByUserId(userId); u != nil {
+							if u := userLookup.GetByUserId(userId); u != nil {
 								u.SendText("A sign crumbles to dust.\n")
 							}
 						} else if sign.VisibleUserId == userId {
-							if u := users.GetByUserId(userId); u != nil {
+							if u := userLookup.GetByUserId(userId); u != nil {
 								u.SendText("The rune you had enscribed here has faded away.\n")
 							}
 						}
@@ -196,7 +195,7 @@ func RoomMaintenance() []int {
 			if roomPlayers := room.GetPlayers(); len(roomPlayers) > 0 {
 				for _, exit := range prunedExits {
 					for _, userId := range roomPlayers {
-						if u := users.GetByUserId(userId); u != nil {
+						if u := userLookup.GetByUserId(userId); u != nil {
 							u.SendText(fmt.Sprintf("The %s vanishes.\n", exit.Title))
 						}
 					}
@@ -254,7 +253,7 @@ func GetAllZoneRoomsIds(zoneName string) []int {
 
 func MoveToRoom(userId int, toRoomId int, isSpawn ...bool) error {
 
-	user := users.GetByUserId(userId)
+	user := userLookup.GetByUserId(userId)
 	if user == nil {
 		return fmt.Errorf("user %d not found", userId)
 	}

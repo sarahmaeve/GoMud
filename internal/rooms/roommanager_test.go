@@ -9,6 +9,7 @@ import (
 	"github.com/GoMudEngine/GoMud/internal/configs"
 	"github.com/GoMudEngine/GoMud/internal/mudlog"
 	"github.com/GoMudEngine/GoMud/internal/persistence"
+	"github.com/GoMudEngine/GoMud/internal/users"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -27,6 +28,7 @@ func resetRoomManager() {
 	roomManager.roomsWithUsers = make(map[int]int)
 	roomManager.roomsWithMobs = make(map[int]int)
 	roomManager.roomIdToFileCache = make(map[int]string)
+	userLookup = users.DefaultUserLookup()
 }
 
 func TestMoveToRoom_NilUser_DoesNotPanic(t *testing.T) {

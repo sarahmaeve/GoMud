@@ -284,6 +284,7 @@ func main() {
 	}
 	users.SetStore(store)
 	rooms.SetStore(store)
+	rooms.SetUserLookup(users.DefaultUserLookup())
 
 	// Load all the data files up front.
 	loadAllDataFiles(false)

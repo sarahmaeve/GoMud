@@ -161,15 +161,23 @@ func GetByCharacterName(name string) *UserRecord {
 	return closeMatch
 }
 
-func GetByUserId(userId int) *UserRecord {
-	userManager.mu.RLock()
-	defer userManager.mu.RUnlock()
+// GetByUserId looks up an active user by their user ID.
+// Returns nil if the user is not currently online.
+func (a *ActiveUsers) GetByUserId(userId int) *UserRecord {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 
-	if user, ok := userManager.Users[userId]; ok {
+	if user, ok := a.Users[userId]; ok {
 		return user
 	}
 
 	return nil
+}
+
+// GetByUserId is a package-level convenience that delegates to the
+// global userManager singleton.
+func GetByUserId(userId int) *UserRecord {
+	return userManager.GetByUserId(userId)
 }
 
 func GetByConnectionId(connectionId connections.ConnectionId) *UserRecord {
