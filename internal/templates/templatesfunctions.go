@@ -207,6 +207,27 @@ var (
 		},
 		"map": makeMap,
 		"t":   language.T,
+		"branding": func(field string) string {
+			s := configs.GetServerConfig()
+			switch field {
+			case "MudName":
+				return string(s.MudName)
+			case "Tagline":
+				return string(s.Tagline)
+			case "Description":
+				return string(s.Description)
+			case "URL":
+				return string(s.URL)
+			case "DiscordURL":
+				return string(s.DiscordURL)
+			case "AdminName":
+				return string(s.AdminName)
+			case "AdminEmail":
+				return string(s.AdminEmail)
+			default:
+				return ""
+			}
+		},
 	}
 )
 

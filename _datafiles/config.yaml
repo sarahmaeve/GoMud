@@ -34,6 +34,24 @@ Server:
   #   Display name of the MUD.
   #   This will be used a few places by default (such as the web pages).
   MudName: "GoMud"
+  # - Tagline -
+  #   Short tagline displayed on the login splash screen.
+  Tagline: "an open source MUD Library written in Go"
+  # - Description -
+  #   Longer description used on the about page.
+  Description: "GoMud is an open source MUD (Multi-user Dungeon) game world and library."
+  # - URL -
+  #   Project or server URL shown to players.
+  URL: "github.com/GoMudEngine/GoMud"
+  # - DiscordURL -
+  #   Community Discord invite link.
+  DiscordURL: "discord.gg/cjukKvQWyy"
+  # - AdminName -
+  #   Server operator name (optional, shown on about page if set).
+  AdminName: ""
+  # - AdminEmail -
+  #   Contact email (optional, shown on about page if set).
+  AdminEmail: ""
   # - Seed -
   #   The seed used for certain types of content generation
   #   To prevent certain secrets or content from being spoiled, you can set this
