@@ -313,6 +313,23 @@ func MoveToRoom(userId int, toRoomId int, isSpawn ...bool) error {
 	newRoom.MarkVisited(userId, VisitorUser)
 
 	//
+	// Apply any mutators from the zone or room
+	// This will only add mutators that the player
+	// doesn't already have.
+	//
+	for mut := range newRoom.ActiveMutators {
+		spec := mut.GetSpec()
+		if len(spec.PlayerBuffIds) == 0 {
+			continue
+		}
+		for _, buffId := range spec.PlayerBuffIds {
+			if !user.Character.HasBuff(buffId) {
+				user.AddBuff(buffId, `area`)
+			}
+		}
+	}
+
+	//
 	// If they are moving into an ephemeral room
 	//
 	if IsEphemeralRoomId(newRoom.RoomId) {
