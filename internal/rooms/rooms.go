@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/GoMudEngine/GoMud/internal/audio"
-	"github.com/GoMudEngine/GoMud/internal/buffs"
 	"github.com/GoMudEngine/GoMud/internal/configs"
 	"github.com/GoMudEngine/GoMud/internal/events"
 	"github.com/GoMudEngine/GoMud/internal/exit"
@@ -801,7 +800,7 @@ func (r *Room) AddMob(mobInstanceId int) {
 		MobInstanceId: mobInstanceId,
 		FromRoomId:    mob.Character.RoomId,
 		ToRoomId:      r.RoomId,
-		Unseen:        mob.Character.HasBuffFlag(buffs.Hidden),
+		Unseen:        mob.Character.HasBuffFlag(flagHidden),
 	})
 
 	mob.Character.RoomId = r.RoomId
@@ -1137,7 +1136,7 @@ func (r *Room) GetMobs(findTypes ...FindFlag) []int {
 			}
 		}
 
-		if typeFlag&FindHasLight == FindHasLight && mob.Character.HasBuffFlag(buffs.EmitsLight) {
+		if typeFlag&FindHasLight == FindHasLight && mob.Character.HasBuffFlag(flagEmitsLight) {
 			mobMatches = append(mobMatches, mobId)
 			continue
 		}
@@ -1233,7 +1232,7 @@ func (r *Room) GetPlayers(findTypes ...FindFlag) []int {
 			}
 		}
 
-		if typeFlag&FindHasLight == FindHasLight && user.Character.HasBuffFlag(buffs.EmitsLight) {
+		if typeFlag&FindHasLight == FindHasLight && user.Character.HasBuffFlag(flagEmitsLight) {
 			playerMatches = append(playerMatches, userId)
 			continue
 		}

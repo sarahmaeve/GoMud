@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/GoMudEngine/GoMud/internal/buffs"
 	"github.com/GoMudEngine/GoMud/internal/characters"
 	"github.com/GoMudEngine/GoMud/internal/colorpatterns"
 	"github.com/GoMudEngine/GoMud/internal/configs"
@@ -108,7 +107,7 @@ func GetDetails(r *Room, user *users.UserRecord, tinymap ...[]string) RoomTempla
 	// End Room Alerts
 	//
 	renderNouns := user.HasRolePermission(`room.nouns`)
-	if user.Character.Pet.Exists() && user.Character.HasBuffFlag(buffs.SeeNouns) {
+	if user.Character.Pet.Exists() && user.Character.HasBuffFlag(flagSeeNouns) {
 		renderNouns = true
 	}
 
@@ -246,8 +245,8 @@ func GetDetails(r *Room, user *users.UserRecord, tinymap ...[]string) RoomTempla
 			player := userLookup.GetByUserId(playerId)
 			if player != nil {
 
-				if player.Character.HasBuffFlag(buffs.Hidden) { // Don't show them if they are sneaking
-					if !user.Character.Pet.Exists() || !user.Character.HasBuffFlag(buffs.SeeHidden) {
+				if player.Character.HasBuffFlag(flagHidden) { // Don't show them if they are sneaking
+					if !user.Character.Pet.Exists() || !user.Character.HasBuffFlag(flagSeeHidden) {
 						continue
 					}
 				}
@@ -267,8 +266,8 @@ func GetDetails(r *Room, user *users.UserRecord, tinymap ...[]string) RoomTempla
 	for idx, mobInstanceId := range r.mobs {
 		if mob := mobs.GetInstance(mobInstanceId); mob != nil {
 
-			if mob.Character.HasBuffFlag(buffs.Hidden) { // Don't show them if they are sneaking
-				if !user.Character.Pet.Exists() || !user.Character.HasBuffFlag(buffs.SeeHidden) {
+			if mob.Character.HasBuffFlag(flagHidden) { // Don't show them if they are sneaking
+				if !user.Character.Pet.Exists() || !user.Character.HasBuffFlag(flagSeeHidden) {
 					continue
 				}
 			}
@@ -447,7 +446,7 @@ func GetDetails(r *Room, user *users.UserRecord, tinymap ...[]string) RoomTempla
 		}
 	}
 
-	if user.Character.HasBuffFlag(buffs.Tripping) {
+	if user.Character.HasBuffFlag(flagTripping) {
 		details.Title = colorpatterns.ApplyCharacterWarping(details.Title)
 		details.Description = colorpatterns.ApplyCharacterWarping(details.Description)
 

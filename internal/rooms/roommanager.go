@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/GoMudEngine/GoMud/internal/buffs"
 	"github.com/GoMudEngine/GoMud/internal/configs"
 	"github.com/GoMudEngine/GoMud/internal/events"
 	"github.com/GoMudEngine/GoMud/internal/exit"
@@ -355,10 +354,6 @@ func MoveToRoom(userId int, toRoomId int, isSpawn ...bool) error {
 		}
 	}
 
-	//
-	// Done adding mutator buffs
-	//
-
 	user.Character.RoomId = newRoom.RoomId
 	user.Character.Zone = newRoom.Zone
 	user.Character.RememberRoom(newRoom.RoomId) // Mark this room as remembered.
@@ -370,7 +365,7 @@ func MoveToRoom(userId int, toRoomId int, isSpawn ...bool) error {
 		UserId:     userId,
 		FromRoomId: fromRoomId,
 		ToRoomId:   newRoom.RoomId,
-		Unseen:     user.Character.HasBuffFlag(buffs.Hidden),
+		Unseen:     user.Character.HasBuffFlag(flagHidden),
 	})
 
 	return nil

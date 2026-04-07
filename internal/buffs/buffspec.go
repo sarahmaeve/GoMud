@@ -23,7 +23,7 @@ Fast Healing - increased natural health recovery for 10 rounds
 Poison - add -10 health every round for 5 rounds
 */
 
-type Flag string
+type Flag = string
 
 const (
 	//
